@@ -1,0 +1,9 @@
+{
+  "mcp.servers": {
+    "wireshark": {
+      "command": "mcp-wireshark",
+      "args": [],
+      "env": {}
+    }
+  }
+}
