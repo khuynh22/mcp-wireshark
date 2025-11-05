@@ -267,7 +267,7 @@ async def handle_live_capture(arguments: dict[str, Any]) -> list[TextContent]:
                 TextContent(
                     type="text",
                     text=f"Captured {packet_count_result} packet(s) from interface '{interface}'\n\n"
-                     f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
+                    f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
                 )
             ]
         return [
@@ -309,7 +309,7 @@ async def handle_read_pcap(arguments: dict[str, Any]) -> list[TextContent]:
                 TextContent(
                     type="text",
                     text=f"Read {count} packet(s) from {file_path}\n\n"
-                     f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
+                    f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
                 )
             ]
         return [
@@ -357,7 +357,7 @@ async def handle_display_filter(arguments: dict[str, Any]) -> list[TextContent]:
                 TextContent(
                     type="text",
                     text=f"Found {count} packet(s) matching filter '{filter_expr}'\n\n"
-                     f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
+                    f"Preview:\n{json.dumps(packets[:5] if isinstance(packets, list) else packets, indent=2)}",
                 )
             ]
         return [

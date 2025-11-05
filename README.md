@@ -5,6 +5,8 @@ An MCP (Model Context Protocol) server that integrates Wireshark/tshark with AI 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
+📚 **[Quick Start Guide](docs/QUICKSTART.md)** | 📖 **[API Documentation](docs/API.md)** | 🤝 **[Contributing](CONTRIBUTING.md)**
+
 ## Features
 
 - 🔍 **List Network Interfaces**: Discover all available network interfaces for packet capture

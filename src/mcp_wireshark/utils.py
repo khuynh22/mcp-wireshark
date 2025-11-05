@@ -13,7 +13,6 @@ class WiresharkNotFoundError(Exception):
     """Raised when tshark or dumpcap is not found."""
 
 
-
 def check_wireshark_installed() -> dict[str, str | None]:
     """
     Check if Wireshark tools are installed.

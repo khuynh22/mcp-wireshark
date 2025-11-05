@@ -1,6 +1,5 @@
 """Tests for utility functions."""
 
-
 from mcp_wireshark.utils import check_wireshark_installed, parse_packet_json
 
 
