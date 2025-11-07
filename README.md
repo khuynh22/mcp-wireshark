@@ -5,7 +5,9 @@ An MCP (Model Context Protocol) server that integrates Wireshark/tshark with AI 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-📚 **[Quick Start Guide](docs/QUICKSTART.md)** | 📖 **[API Documentation](docs/API.md)** | 🤝 **[Contributing](CONTRIBUTING.md)**
+> **� New to this project?** Start here: **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete setup, publishing, and contribution guide!
+
+📚 **[Quick Start](docs/QUICKSTART.md)** | 📖 **[API Docs](docs/API.md)** | 🤝 **[Contributing](CONTRIBUTING.md)** | 🚀 **[Publishing](docs/PUBLISHING.md)** | 💻 **[Dev Setup](docs/DEVELOPMENT.md)**
 
 ## Features
 
@@ -231,31 +233,27 @@ The tool uses `dumpcap` when available (recommended for non-root captures) and f
 
 ## Development
 
-### Setup Development Environment
+Want to contribute? See our comprehensive guides:
+
+- **[Development Setup Guide](docs/DEVELOPMENT.md)** - Complete environment setup for contributors
+- **[Publishing Guide](docs/PUBLISHING.md)** - How to publish to PyPI
+- **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines and workflow
+
+### Quick Start for Developers
 
 ```bash
+# Clone and setup
 git clone https://github.com/khuynh22/mcp-wireshark.git
 cd mcp-wireshark
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e ".[dev]"
-```
 
-### Running Tests
-
-```bash
-pytest
-```
-
-### Code Quality
-
-```bash
-# Format code
-black src tests
-
-# Lint code
-ruff check src tests
-
-# Type checking
-mypy src
+# Run quality checks
+pytest                    # Run tests
+black src tests          # Format code
+ruff check src tests     # Lint
+mypy src                 # Type check
 ```
 
 ## Examples
