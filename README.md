@@ -1,5 +1,7 @@
 # MCP Wireshark
 
+> **Note:** This is an unofficial, community-maintained MCP server and is not affiliated with or endorsed by Wireshark, Anthropic, or the official Model Context Protocol project.
+
 An MCP (Model Context Protocol) server that integrates Wireshark/tshark with AI tools and IDEs. Capture live network traffic, parse .pcap files, apply display filters, follow TCP streams, and export to JSON—all accessible through Claude Desktop, VS Code, or the command-line interface.
 
 [![PyPI version](https://badge.fury.io/py/mcp-wireshark.svg)](https://badge.fury.io/py/mcp-wireshark)

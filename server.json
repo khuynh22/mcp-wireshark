@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.khuynh22/wireshark",
+  "description": "[Unofficial/Community] MCP server for Wireshark/tshark integration - capture live network traffic, parse pcap files, apply display filters, and analyze network protocols with AI assistance",
+  "repository": {
+    "url": "https://github.com/khuynh22/mcp-wireshark",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mcp-wireshark",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": []
+    }
+  ]
+}
