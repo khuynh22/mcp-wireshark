@@ -34,7 +34,7 @@ This MCP server implements security measures to prevent:
 If you discover a security vulnerability, please:
 
 1. **Do NOT** open a public issue
-2. Email the maintainer directly at [create a private issue]
+2. Use GitHub's "Report a vulnerability" feature to create a private security advisory: https://github.com/khuynh22/mcp-wireshark/security/advisories/new
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
@@ -53,6 +53,7 @@ We will acknowledge receipt within 48 hours and provide a detailed response with
 ## Dependency Security
 
 This project uses:
+
 - `mcp` - Official MCP SDK
 - `pyshark` - Python wrapper for tshark
 - Standard library modules for core functionality

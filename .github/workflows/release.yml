@@ -26,7 +26,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
+
+      - name: Validate tag and version (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          REQUESTED_VERSION="${{ github.event.inputs.version }}"
+          TAG="v${REQUESTED_VERSION}"
+
+          # Check if tag exists
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "❌ Error: Tag '$TAG' does not exist"
+            echo "Available tags:"
+            git tag -l | tail -10
+            exit 1
+          fi
+
+          # Verify we're on the correct tag
+          CURRENT_TAG=$(git describe --exact-match --tags HEAD 2>/dev/null || echo "none")
+          if [ "$CURRENT_TAG" != "$TAG" ]; then
+            echo "❌ Error: Expected to be on tag '$TAG' but found '$CURRENT_TAG'"
+            exit 1
+          fi
+
+          echo "✅ Tag '$TAG' exists and checked out successfully"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,7 +60,25 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build twine
+          pip install build twine toml
+
+      - name: Verify version matches (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          REQUESTED_VERSION="${{ github.event.inputs.version }}"
+          PYPROJECT_VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+
+          if [ "$PYPROJECT_VERSION" != "$REQUESTED_VERSION" ]; then
+            echo "❌ Error: Version mismatch!"
+            echo "  Requested version: $REQUESTED_VERSION"
+            echo "  pyproject.toml version: $PYPROJECT_VERSION"
+            echo ""
+            echo "The version in pyproject.toml must match the requested version."
+            echo "This likely means the tag points to code with the wrong version."
+            exit 1
+          fi
+
+          echo "✅ Version validated: $PYPROJECT_VERSION"
 
       - name: Build package
         run: python -m build

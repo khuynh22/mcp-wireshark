@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches-ignore:
-      - 'dependabot/**'  # Skip dependabot auto-branches (handled by PRs)
+      - 'dependabot/**'  # Skip CI on direct pushes to dependabot branches (Dependabot PRs will still trigger CI)
   pull_request:
     branches: [main]
 

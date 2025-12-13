@@ -22,7 +22,6 @@ class TestValidation:
         pcap_file.touch()
         result = validate_file_path(str(pcap_file))
         assert result.suffix == ".pcap"
-        result = validate_file_path(str(pcap_file))
 
     def test_validate_file_path_valid_pcapng(self, tmp_path: Path) -> None:
         """Test validation of valid pcapng file path."""
@@ -30,14 +29,11 @@ class TestValidation:
         pcap_file.touch()
         result = validate_file_path(str(pcap_file))
         assert result.suffix == ".pcapng"
-        result = validate_file_path(str(pcap_file))
 
     def test_validate_file_path_invalid_extension(self, tmp_path: Path) -> None:
         """Test rejection of invalid file extension."""
         txt_file = tmp_path / "test.txt"
         txt_file.touch()
-        with pytest.raises(ValueError, match="Invalid file extension"):
-            validate_file_path(str(txt_file))
         with pytest.raises(ValueError, match="Invalid file extension"):
             validate_file_path(str(txt_file))
 
