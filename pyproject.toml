@@ -5,23 +5,41 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mcp-wireshark"
 version = "0.1.0"
-description = "MCP server for Wireshark/tshark integration with AI tools"
+description = "[Unofficial/Community] MCP server for Wireshark/tshark integration with AI tools"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Khang Nguyen Huynh"}
 ]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "wireshark",
+    "tshark",
+    "network-analysis",
+    "packet-capture",
+    "pcap",
+    "ai-tools",
+    "claude",
+    "llm",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: Security",
+    "Typing :: Typed",
 ]
 dependencies = [
     "mcp>=0.9.0",
@@ -37,6 +55,12 @@ dev = [
     "mypy>=1.0",
     "black>=23.0",
     "ruff>=0.1.0",
+    "pre-commit>=3.0",
+]
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
 ]
 
 [project.scripts]
@@ -46,12 +70,21 @@ mcp-wireshark = "mcp_wireshark.cli:main"
 Homepage = "https://github.com/khuynh22/mcp-wireshark"
 Repository = "https://github.com/khuynh22/mcp-wireshark"
 Issues = "https://github.com/khuynh22/mcp-wireshark/issues"
+Documentation = "https://github.com/khuynh22/mcp-wireshark#readme"
+Changelog = "https://github.com/khuynh22/mcp-wireshark/blob/main/CHANGELOG.md"
+
+[project.entry-points."mcp.servers"]
+wireshark = "mcp_wireshark.server:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 mcp_wireshark = ["py.typed"]
+
+[tool.mcp]
+# MCP Registry verification name
+name = "io.github.khuynh22/wireshark"
 
 [tool.black]
 line-length = 100

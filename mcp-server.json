@@ -1,0 +1,85 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/schemas/mcp-server.schema.json",
+  "name": "mcp-wireshark",
+  "mcpName": "io.github.khuynh22/wireshark",
+  "version": "0.1.0",
+  "description": "[Unofficial/Community] MCP server for Wireshark/tshark integration - capture live network traffic, parse pcap files, apply display filters, and analyze network protocols with AI assistance",
+  "author": "Khang Nguyen Huynh",
+  "license": "MIT",
+  "repository": "https://github.com/khuynh22/mcp-wireshark",
+  "homepage": "https://github.com/khuynh22/mcp-wireshark",
+  "categories": ["networking", "security", "analysis", "developer-tools"],
+  "tags": ["wireshark", "tshark", "pcap", "network", "packet-capture", "protocol-analysis"],
+  "runtime": "python",
+  "minPythonVersion": "3.10",
+  "installation": {
+    "pip": "mcp-wireshark"
+  },
+  "configuration": {
+    "claude_desktop": {
+      "command": "mcp-wireshark",
+      "args": [],
+      "env": {}
+    },
+    "vscode": {
+      "command": "mcp-wireshark",
+      "args": [],
+      "env": {}
+    }
+  },
+  "requirements": [
+    {
+      "name": "Wireshark/tshark",
+      "description": "Wireshark network analyzer with tshark CLI tool",
+      "installInstructions": {
+        "macOS": "brew install wireshark",
+        "ubuntu": "sudo apt-get install tshark",
+        "windows": "Download from https://www.wireshark.org/download.html"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_interfaces",
+      "description": "List all available network interfaces for packet capture"
+    },
+    {
+      "name": "live_capture",
+      "description": "Capture live network traffic from a specified interface"
+    },
+    {
+      "name": "read_pcap",
+      "description": "Read and analyze packets from .pcap or .pcapng files"
+    },
+    {
+      "name": "display_filter",
+      "description": "Apply Wireshark display filters to packet data"
+    },
+    {
+      "name": "stats_by_proto",
+      "description": "Generate protocol statistics from capture files"
+    },
+    {
+      "name": "follow_tcp",
+      "description": "Follow TCP streams and extract payload data"
+    },
+    {
+      "name": "export_json",
+      "description": "Export packets to JSON format for further analysis"
+    }
+  ],
+  "examples": [
+    {
+      "prompt": "List all network interfaces available for capture",
+      "tool": "list_interfaces"
+    },
+    {
+      "prompt": "Capture HTTP traffic on eth0 for 30 seconds",
+      "tool": "live_capture"
+    },
+    {
+      "prompt": "Analyze the pcap file and show DNS queries",
+      "tool": "read_pcap"
+    }
+  ]
+}

@@ -5,9 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2024-11-04
+## [Unreleased]
 
 ### Added
+
+- MCP Registry support with `server.json` for official registry publishing
+- MCP server manifest (`mcp-server.json`) for marketplace compatibility
+- Security policy documentation (`SECURITY.md`)
+- Code of Conduct (`CODE_OF_CONDUCT.md`)
+- Input validation and sanitization for file paths and display filters
+- Security constants for resource limits (max packet count, max duration)
+- Enhanced package exports in `__init__.py`
+- MCP server entry point in `pyproject.toml`
+- Additional PyPI badges in README
+- Python 3.13 support in classifiers
+- Unofficial/community disclaimer in documentation and package metadata
+
+### Security
+
+- Added path traversal prevention
+- Added display filter injection protection
+- Limited file extensions to `.pcap`, `.pcapng`, `.cap`
+- Maximum packet count limited to 10,000
+- Maximum capture duration limited to 300 seconds
+
+## [0.1.0] - 2025-11-04
+
+### Added
+
 - Initial release of mcp-wireshark
 - MCP server implementation with 7 tools:
   - `list_interfaces` - List available network interfaces
@@ -34,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIT License
 
 ### Technical Details
+
 - Uses tshark/pyshark for packet analysis
 - Prefers dumpcap over tshark for non-root captures
 - Full async/await support
