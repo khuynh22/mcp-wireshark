@@ -49,11 +49,18 @@ jobs:
     if: needs.check-merge.outputs.should_release == 'true'
 
     steps:
+      - name: Generate token from GitHub App
+        id: generate-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.generate-token.outputs.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
