@@ -1,0 +1,53 @@
+# GitHub Labels Configuration
+# Use `gh label create` or import via GitHub UI
+
+# Release labels - add to PR to trigger auto-release on merge
+- name: "release:patch"
+  color: "0E8A16"
+  description: "Triggers a patch release (0.0.x) on merge"
+
+- name: "release:minor"
+  color: "1D76DB"
+  description: "Triggers a minor release (0.x.0) on merge"
+
+- name: "release:major"
+  color: "D93F0B"
+  description: "Triggers a major release (x.0.0) on merge"
+
+# Type labels
+- name: "bug"
+  color: "D73A4A"
+  description: "Something isn't working"
+
+- name: "enhancement"
+  color: "A2EEEF"
+  description: "New feature or request"
+
+- name: "documentation"
+  color: "0075CA"
+  description: "Improvements or additions to documentation"
+
+- name: "dependencies"
+  color: "0366D6"
+  description: "Pull requests that update a dependency file"
+
+- name: "ci"
+  color: "FBCA04"
+  description: "CI/CD related changes"
+
+- name: "security"
+  color: "D93F0B"
+  description: "Security related changes"
+
+# Status labels
+- name: "good first issue"
+  color: "7057FF"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: "wontfix"
+  color: "FFFFFF"
+  description: "This will not be worked on"

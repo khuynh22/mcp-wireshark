@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- MCP server manifest (`mcp-server.json`) for marketplace compatibility
+- Security policy documentation (`SECURITY.md`)
+- Code of Conduct (`CODE_OF_CONDUCT.md`)
+- Input validation and sanitization for file paths and display filters
+- Security constants for resource limits (max packet count, max duration)
+- Enhanced package exports in `__init__.py`
+- MCP server entry point in `pyproject.toml`
+- Additional PyPI badges in README
+- Python 3.13 support in classifiers
+
+### Security
+- Added path traversal prevention
+- Added display filter injection protection
+- Limited file extensions to `.pcap`, `.pcapng`, `.cap`
+- Maximum packet count limited to 10,000
+- Maximum capture duration limited to 300 seconds
+
 ## [0.1.0] - 2024-11-04
 
 ### Added

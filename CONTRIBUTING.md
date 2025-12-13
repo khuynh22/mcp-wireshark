@@ -112,6 +112,31 @@ Documentation files to update:
 - `docs/API.md` - API reference
 - `examples/` - Usage examples
 
+## Release Process
+
+Releases are automated when PRs are merged to `main`. To trigger a release:
+
+1. **Add a release label to your PR** before merging:
+   - `release:patch` - Bug fixes, minor changes (0.0.x)
+   - `release:minor` - New features, backwards compatible (0.x.0)
+   - `release:major` - Breaking changes (x.0.0)
+
+2. **Merge the PR** - The auto-release workflow will:
+   - Bump version in `pyproject.toml` and `__init__.py`
+   - Create a git tag
+   - Build and publish to PyPI
+   - Create a GitHub Release
+   - Send email notification
+
+3. **No release label?** - The PR will merge without triggering a release. This is fine for documentation-only changes or internal refactoring.
+
+### Manual Release
+
+If auto-release fails, maintainers can:
+1. Go to Actions → "Manual Release"
+2. Click "Run workflow"
+3. Enter the version number
+
 ## Commit Messages
 
 Follow conventional commit format:

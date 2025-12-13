@@ -1,0 +1,221 @@
+name: Auto Release
+
+# Triggers when a PR is merged to main
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  # Check if PR was merged (not just closed)
+  check-merge:
+    name: Check if PR was merged
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    outputs:
+      should_release: ${{ steps.check-labels.outputs.should_release }}
+      bump_type: ${{ steps.check-labels.outputs.bump_type }}
+    steps:
+      - name: Check PR labels for release type
+        id: check-labels
+        run: |
+          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
+          echo "PR Labels: $LABELS"
+
+          if echo "$LABELS" | grep -q "release:major"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=major" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q "release:minor"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q "release:patch"; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "bump_type=none" >> $GITHUB_OUTPUT
+            echo "No release label found. Add 'release:major', 'release:minor', or 'release:patch' label to trigger a release."
+          fi
+
+  # Bump version, create tag, and publish
+  release:
+    name: Bump Version & Release
+    runs-on: ubuntu-latest
+    needs: check-merge
+    if: needs.check-merge.outputs.should_release == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine toml
+
+      - name: Get current version
+        id: current-version
+        run: |
+          CURRENT_VERSION=$(python -c "import toml; print(toml.load('pyproject.toml')['project']['version'])")
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT_VERSION"
+
+      - name: Calculate new version
+        id: new-version
+        run: |
+          CURRENT="${{ steps.current-version.outputs.version }}"
+          BUMP_TYPE="${{ needs.check-merge.outputs.bump_type }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case $BUMP_TYPE in
+            major)
+              NEW_VERSION="$((MAJOR + 1)).0.0"
+              ;;
+            minor)
+              NEW_VERSION="${MAJOR}.$((MINOR + 1)).0"
+              ;;
+            patch)
+              NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+              ;;
+          esac
+
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION (bump type: $BUMP_TYPE)"
+
+      - name: Update version in files
+        run: |
+          NEW_VERSION="${{ steps.new-version.outputs.version }}"
+
+          # Update pyproject.toml
+          sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" pyproject.toml
+
+          # Update __init__.py
+          sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" src/mcp_wireshark/__init__.py
+
+          echo "Updated version to $NEW_VERSION in pyproject.toml and __init__.py"
+
+      - name: Commit version bump
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add pyproject.toml src/mcp_wireshark/__init__.py
+          git commit -m "chore: bump version to ${{ steps.new-version.outputs.version }}"
+          git push
+
+      - name: Create Git tag
+        run: |
+          NEW_VERSION="${{ steps.new-version.outputs.version }}"
+          git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.new-version.outputs.version }}
+          name: Release v${{ steps.new-version.outputs.version }}
+          body: |
+            ## What's Changed
+
+            PR: #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}
+
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.current-version.outputs.version }}...v${{ steps.new-version.outputs.version }}
+
+            ### Installation
+            ```bash
+            pip install mcp-wireshark==${{ steps.new-version.outputs.version }}
+            ```
+          files: |
+            dist/*
+          generate_release_notes: true
+
+      - name: Send success email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "✅ mcp-wireshark v${{ steps.new-version.outputs.version }} released successfully"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            🎉 Release successful!
+
+            Package: mcp-wireshark
+            Version: ${{ steps.new-version.outputs.version }}
+            Previous: ${{ steps.current-version.outputs.version }}
+            Bump type: ${{ needs.check-merge.outputs.bump_type }}
+
+            PR: #${{ github.event.pull_request.number }}
+            Title: ${{ github.event.pull_request.title }}
+            Author: ${{ github.event.pull_request.user.login }}
+
+            Links:
+            - PyPI: https://pypi.org/project/mcp-wireshark/${{ steps.new-version.outputs.version }}/
+            - GitHub Release: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.new-version.outputs.version }}
+            - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "❌ mcp-wireshark release FAILED"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            ⚠️ Release failed!
+
+            Package: mcp-wireshark
+            Attempted version: ${{ steps.new-version.outputs.version }}
+            Bump type: ${{ needs.check-merge.outputs.bump_type }}
+
+            PR: #${{ github.event.pull_request.number }}
+            Title: ${{ github.event.pull_request.title }}
+
+            Please check the workflow logs:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # Notify if no release label was found
+  notify-no-release:
+    name: No Release Label
+    runs-on: ubuntu-latest
+    needs: check-merge
+    if: needs.check-merge.outputs.should_release == 'false'
+    steps:
+      - name: Log info
+        run: |
+          echo "PR #${{ github.event.pull_request.number }} merged without release label."
+          echo "To trigger a release, add one of these labels before merging:"
+          echo "  - release:patch (0.0.x)"
+          echo "  - release:minor (0.x.0)"
+          echo "  - release:major (x.0.0)"

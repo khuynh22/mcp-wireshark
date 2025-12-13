@@ -2,8 +2,13 @@
 
 An MCP (Model Context Protocol) server that integrates Wireshark/tshark with AI tools and IDEs. Capture live network traffic, parse .pcap files, apply display filters, follow TCP streams, and export to JSON—all accessible through Claude Desktop, VS Code, or the command-line interface.
 
+[![PyPI version](https://badge.fury.io/py/mcp-wireshark.svg)](https://badge.fury.io/py/mcp-wireshark)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![CI](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml/badge.svg)](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 
 > **� New to this project?** Start here: **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete setup, publishing, and contribution guide!
 

@@ -1,14 +1,23 @@
-name: Release
+name: Manual Release
 
+# Manual release trigger - use this if auto-release didn't work
+# or for publishing existing tags
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 0.2.0)'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   publish:
+    name: Build & Publish to PyPI
     runs-on: ubuntu-latest
 
     permissions:
@@ -16,6 +25,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.version && format('v{0}', github.event.inputs.version) || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,12 +39,54 @@ jobs:
           pip install build twine
 
       - name: Build package
-        run: |
-          python -m build
+        run: python -m build
+
+      - name: Check package
+        run: twine check dist/*
 
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: |
-          twine upload dist/*
+        run: twine upload dist/*
+
+      - name: Send success email
+        if: success()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "✅ mcp-wireshark manual release published successfully"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            🎉 Manual release published!
+
+            Package: mcp-wireshark
+            Tag/Version: ${{ github.event.inputs.version || github.ref_name }}
+
+            Links:
+            - PyPI: https://pypi.org/project/mcp-wireshark/
+            - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send failure email
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "❌ mcp-wireshark manual release FAILED"
+          to: ${{ secrets.NOTIFICATION_EMAIL }}
+          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
+          body: |
+            ⚠️ Manual release failed!
+
+            Package: mcp-wireshark
+            Tag/Version: ${{ github.event.inputs.version || github.ref_name }}
+
+            Please check the workflow logs:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

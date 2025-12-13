@@ -15,8 +15,70 @@ from .utils import (
     run_tshark,
 )
 
-# Create the MCP server
 app = Server("mcp-wireshark")
+
+# Security constants
+MAX_PACKET_COUNT = 10000
+MAX_DURATION_SECONDS = 300  # 5 minutes
+ALLOWED_FILE_EXTENSIONS = {".pcap", ".pcapng", ".cap"}
+
+
+def validate_file_path(file_path: str) -> Path:
+    """Validate and sanitize file path for security.
+
+    Args:
+        file_path (str): The file path to validate
+
+    Returns:
+        Path: Validated Path object
+
+    Raises:
+        ValueError: If the path is invalid or potentially malicious
+    """
+    try:
+        path = Path(file_path).resolve()
+
+        # Check for path traversal attempts
+        if ".." in str(file_path):
+            raise ValueError("Path traversal not allowed")
+
+        # Validate file extension
+        if path.suffix.lower() not in ALLOWED_FILE_EXTENSIONS:
+            raise ValueError(
+                f"Invalid file extension. Allowed: {', '.join(ALLOWED_FILE_EXTENSIONS)}"
+            )
+
+        return path
+    except Exception as e:
+        raise ValueError(f"Invalid file path: {e}") from e
+
+
+def validate_display_filter(filter_expr: str) -> str:
+    """Validate Wireshark display filter for safety.
+
+    Args:
+        filter_expr: The filter expression to validate
+
+    Returns:
+        Validated filter expression
+
+    Raises:
+        ValueError: If the filter contains potentially dangerous content
+    """
+    if not filter_expr:
+        return filter_expr
+
+    # Check for shell injection attempts
+    dangerous_patterns = [";", "&&", "||", "`", "$(", "${", "|", ">", "<", "\n", "\r"]
+    for pattern in dangerous_patterns:
+        if pattern in filter_expr:
+            raise ValueError(f"Invalid character in display filter: {pattern}")
+
+    # Basic length check
+    if len(filter_expr) > 1000:
+        raise ValueError("Display filter too long (max 1000 characters)")
+
+    return filter_expr
 
 
 @app.list_tools()
@@ -225,11 +287,16 @@ async def handle_list_interfaces() -> list[TextContent]:
 async def handle_live_capture(arguments: dict[str, Any]) -> list[TextContent]:
     """Capture live network traffic."""
     interface = arguments["interface"]
-    duration = arguments.get("duration", 10)
+    duration = min(arguments.get("duration", 10), MAX_DURATION_SECONDS)
     packet_count = arguments.get("packet_count")
+    if packet_count:
+        packet_count = min(packet_count, MAX_PACKET_COUNT)
     display_filter = arguments.get("display_filter")
 
     try:
+        # Validate display filter if provided
+        if display_filter:
+            display_filter = validate_display_filter(display_filter)
         # Create temporary file for capture
         with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as temp_file:
             temp_path = temp_file.name
@@ -286,13 +353,19 @@ async def handle_live_capture(arguments: dict[str, Any]) -> list[TextContent]:
 async def handle_read_pcap(arguments: dict[str, Any]) -> list[TextContent]:
     """Read packets from a pcap file."""
     file_path = arguments["file_path"]
-    packet_count = arguments.get("packet_count", 100)
+    packet_count = min(arguments.get("packet_count", 100), MAX_PACKET_COUNT)
     display_filter = arguments.get("display_filter")
 
     try:
-        # Validate file exists
-        if not Path(file_path).exists():
+        # Validate file path for security
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
             return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        # Validate display filter if provided
+        if display_filter:
+            display_filter = validate_display_filter(display_filter)
 
         # Build command
         args = ["-r", file_path, "-T", "json", "-c", str(packet_count)]
@@ -330,11 +403,17 @@ async def handle_display_filter(arguments: dict[str, Any]) -> list[TextContent]:
     """Apply display filter to pcap file."""
     file_path = arguments["file_path"]
     filter_expr = arguments["filter"]
-    packet_count = arguments.get("packet_count", 100)
+    packet_count = min(arguments.get("packet_count", 100), MAX_PACKET_COUNT)
 
     try:
-        if not Path(file_path).exists():
+        # Validate file path for security
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
             return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        # Validate display filter
+        filter_expr = validate_display_filter(filter_expr)
 
         args = [
             "-r",
@@ -376,8 +455,11 @@ async def handle_stats_by_proto(arguments: dict[str, Any]) -> list[TextContent]:
     file_path = arguments["file_path"]
 
     try:
-        if not Path(file_path).exists():
+        # Validate file path for security
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
             return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
 
         # Use tshark statistics
         args = ["-r", file_path, "-q", "-z", "io,phs"]
@@ -401,8 +483,11 @@ async def handle_follow_tcp(arguments: dict[str, Any]) -> list[TextContent]:
     stream_id = arguments.get("stream_id", 0)
 
     try:
-        if not Path(file_path).exists():
+        # Validate file path for security
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
             return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
 
         # Follow TCP stream
         args = ["-r", file_path, "-q", "-z", f"follow,tcp,ascii,{stream_id}"]
@@ -431,12 +516,19 @@ async def handle_export_json(arguments: dict[str, Any]) -> list[TextContent]:
     """Export packets to JSON."""
     file_path = arguments["file_path"]
     output_path = arguments["output_path"]
-    packet_count = arguments.get("packet_count", 1000)
+    packet_count = min(arguments.get("packet_count", 1000), MAX_PACKET_COUNT)
     display_filter = arguments.get("display_filter")
 
     try:
-        if not Path(file_path).exists():
+        # Validate file path for security
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
             return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        # Validate display filter if provided
+        if display_filter:
+            display_filter = validate_display_filter(display_filter)
 
         # Build command
         args = ["-r", file_path, "-T", "json", "-c", str(packet_count)]
