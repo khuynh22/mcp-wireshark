@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2025-12-14
+
 ### Added
 
 - MCP Registry support with `server.json` for official registry publishing
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Additional PyPI badges in README
 - Python 3.13 support in classifiers
 - Unofficial/community disclaimer in documentation and package metadata
+- `__version__` variable in `__init__.py` for version tracking
 
 ### Security
 
@@ -28,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Limited file extensions to `.pcap`, `.pcapng`, `.cap`
 - Maximum packet count limited to 10,000
 - Maximum capture duration limited to 300 seconds
+
+### Fixed
+
+- Fixed missing `__version__` variable that prevented auto-release CI workflow from updating version
 
 ## [0.1.0] - 2025-11-04
 

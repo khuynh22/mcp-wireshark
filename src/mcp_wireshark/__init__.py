@@ -4,6 +4,7 @@ A Model Context Protocol (MCP) server for Wireshark/tshark integration.
 Provides AI tools and IDEs with network packet capture and analysis capabilities.
 """
 
+__version__ = "0.1.1"
 __author__ = "Khang Nguyen Huynh"
 __license__ = "MIT"
 
