@@ -623,7 +623,9 @@ async def handle_check_installation() -> list[TextContent]:
         except Exception as e:
             lines.append(f"tshark: found at {tools['tshark']} (version check failed: {e})")
     else:
-        lines.append("tshark: NOT FOUND — install Wireshark from https://www.wireshark.org/download.html")
+        lines.append(
+            "tshark: NOT FOUND — install Wireshark from https://www.wireshark.org/download.html"
+        )
 
     if tools["dumpcap"]:
         lines.append(f"dumpcap: found at {tools['dumpcap']} (used for live capture)")
