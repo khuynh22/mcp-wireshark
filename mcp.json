@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json.schemastore.org/mcp-server.json",
+  "name": "mcp-wireshark",
+  "displayName": "Wireshark MCP",
+  "version": "0.1.1",
+  "description": "MCP server for Wireshark/tshark integration — capture live traffic, analyze .pcap files, apply display filters, follow TCP/UDP streams, and export to JSON.",
+  "license": "MIT",
+  "homepage": "https://github.com/khuynh22/mcp-wireshark",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/khuynh22/mcp-wireshark"
+  },
+  "keywords": ["wireshark", "tshark", "network", "pcap", "packet-capture", "network-analysis"],
+  "categories": ["network", "security", "developer-tools"],
+  "requires": {
+    "system": ["tshark"]
+  },
+  "installation": {
+    "pip": {
+      "package": "mcp-wireshark",
+      "command": ["mcp-wireshark"]
+    },
+    "uvx": {
+      "package": "mcp-wireshark",
+      "command": ["uvx", "mcp-wireshark"]
+    }
+  },
+  "config": {
+    "claude_desktop": {
+      "mcpServers": {
+        "wireshark": {
+          "command": "mcp-wireshark",
+          "args": []
+        }
+      }
+    },
+    "vscode": {
+      "servers": {
+        "wireshark": {
+          "command": "mcp-wireshark",
+          "args": []
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "check_installation",
+      "description": "Check if Wireshark/tshark is installed and return version info"
+    },
+    {
+      "name": "list_interfaces",
+      "description": "List all available network interfaces for packet capture"
+    },
+    {
+      "name": "live_capture",
+      "description": "Capture live network traffic from a specified interface"
+    },
+    {
+      "name": "read_pcap",
+      "description": "Read and analyze packets from a .pcap or .pcapng file"
+    },
+    {
+      "name": "display_filter",
+      "description": "Apply a Wireshark display filter to a pcap file"
+    },
+    {
+      "name": "summarize_pcap",
+      "description": "Get a high-level summary of a pcap file: packet count, duration, top protocols, top talkers"
+    },
+    {
+      "name": "stats_by_proto",
+      "description": "Generate protocol hierarchy statistics from a pcap file"
+    },
+    {
+      "name": "follow_tcp",
+      "description": "Follow a TCP stream and extract payload data"
+    },
+    {
+      "name": "follow_udp",
+      "description": "Follow a UDP stream and extract payload data"
+    },
+    {
+      "name": "export_json",
+      "description": "Export packets from a pcap file to JSON format"
+    }
+  ]
+}

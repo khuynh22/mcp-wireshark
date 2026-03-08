@@ -1,5 +1,6 @@
 """MCP server implementation for Wireshark integration."""
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -226,6 +227,47 @@ async def list_tools() -> list[Tool]:
                 "required": ["file_path", "output_path"],
             },
         ),
+        Tool(
+            name="check_installation",
+            description="Check if Wireshark/tshark is installed and return version info",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="summarize_pcap",
+            description="Get a high-level summary of a pcap file: packet count, capture duration, top protocols, and top talkers",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the .pcap or .pcapng file",
+                    },
+                },
+                "required": ["file_path"],
+            },
+        ),
+        Tool(
+            name="follow_udp",
+            description="Follow a UDP stream and extract payload data",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_path": {
+                        "type": "string",
+                        "description": "Path to the .pcap or .pcapng file",
+                    },
+                    "stream_id": {
+                        "type": "number",
+                        "description": "UDP stream ID to follow (default: 0)",
+                        "default": 0,
+                    },
+                },
+                "required": ["file_path"],
+            },
+        ),
     ]
 
 
@@ -257,6 +299,12 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
             return await handle_follow_tcp(arguments)
         if name == "export_json":
             return await handle_export_json(arguments)
+        if name == "check_installation":
+            return await handle_check_installation()
+        if name == "summarize_pcap":
+            return await handle_summarize_pcap(arguments)
+        if name == "follow_udp":
+            return await handle_follow_udp(arguments)
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
     except WiresharkNotFoundError as e:
@@ -559,6 +607,99 @@ async def handle_export_json(arguments: dict[str, Any]) -> list[TextContent]:
 
     except Exception as e:
         return [TextContent(type="text", text=f"Error exporting to JSON: {e}")]
+
+
+async def handle_check_installation() -> list[TextContent]:
+    """Check if Wireshark/tshark is installed and return version info."""
+    tools = check_wireshark_installed()
+    lines = []
+
+    if tools["tshark"]:
+        try:
+            version_output = await run_tshark(["--version"], timeout=10)
+            first_line = version_output.strip().split("\n")[0]
+            lines.append(f"tshark: {first_line}")
+            lines.append(f"  Path: {tools['tshark']}")
+        except Exception as e:
+            lines.append(f"tshark: found at {tools['tshark']} (version check failed: {e})")
+    else:
+        lines.append("tshark: NOT FOUND — install Wireshark from https://www.wireshark.org/download.html")
+
+    if tools["dumpcap"]:
+        lines.append(f"dumpcap: found at {tools['dumpcap']} (used for live capture)")
+    else:
+        lines.append("dumpcap: not found (live capture will fall back to tshark)")
+
+    return [TextContent(type="text", text="\n".join(lines))]
+
+
+async def handle_summarize_pcap(arguments: dict[str, Any]) -> list[TextContent]:
+    """Return a high-level summary of a pcap file."""
+    file_path = arguments["file_path"]
+
+    try:
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
+            return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        # Total packet count and time range
+        frame_args = ["-r", file_path, "-q", "-z", "io,stat,0"]
+        # Protocol hierarchy
+        phs_args = ["-r", file_path, "-q", "-z", "io,phs"]
+        # Top talkers by IP
+        talker_args = ["-r", file_path, "-q", "-z", "conv,ip"]
+
+        frame_output, phs_output, talker_output = await asyncio.gather(
+            run_tshark(frame_args, timeout=60),
+            run_tshark(phs_args, timeout=60),
+            run_tshark(talker_args, timeout=60),
+        )
+
+        sections = [
+            f"=== Summary: {file_path} ===",
+            "",
+            "--- I/O Statistics ---",
+            frame_output.strip(),
+            "",
+            "--- Protocol Hierarchy ---",
+            phs_output.strip(),
+            "",
+            "--- Top IP Conversations ---",
+            talker_output.strip(),
+        ]
+
+        return [TextContent(type="text", text="\n".join(sections))]
+
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error summarizing pcap: {e}")]
+
+
+async def handle_follow_udp(arguments: dict[str, Any]) -> list[TextContent]:
+    """Follow a UDP stream."""
+    file_path = arguments["file_path"]
+    stream_id = arguments.get("stream_id", 0)
+
+    try:
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
+            return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        args = ["-r", file_path, "-q", "-z", f"follow,udp,ascii,{stream_id}"]
+        output = await run_tshark(args, timeout=60)
+
+        if output.strip():
+            return [
+                TextContent(
+                    type="text",
+                    text=f"UDP Stream {stream_id} from {file_path}:\n\n{output}",
+                )
+            ]
+        return [TextContent(type="text", text=f"No data found for UDP stream {stream_id}")]
+
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error following UDP stream: {e}")]
 
 
 async def main() -> None:
