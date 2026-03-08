@@ -1,50 +1,35 @@
-Cut a new release for mcp-wireshark. Follow these steps exactly.
+Trigger a release for mcp-wireshark.
 
-## Step 1 — Determine bump type
+The CI handles everything automatically — no manual version bumping needed.
 
-Ask the user: "patch, minor, or major?"
+## How it works
 
-- **patch** (0.1.x): bug fixes, security fixes, no new tools, no API changes
-- **minor** (0.x.0): new tools, new optional parameters, new features — backwards compatible
-- **major** (x.0.0): removed tools, changed required params, breaking output format changes
+1. The PR must have exactly one of these labels before merging:
+   - `release:patch` → 0.1.x (bug fixes, security fixes, no new tools)
+   - `release:minor` → 0.x.0 (new tools, new optional params, backwards-compatible)
+   - `release:major` → x.0.0 (removed tools, changed required params, breaking changes)
 
-## Step 2 — Confirm what's changed
+2. When the PR is merged to `main`, `auto-release.yml` automatically:
+   - Bumps the version in `pyproject.toml`, `src/mcp_wireshark/__init__.py`, and `mcp.json`
+   - Commits the bump as `chore: bump version to X.Y.Z`
+   - Creates and pushes a `vX.Y.Z` git tag
+   - Builds and publishes to PyPI
+   - Creates a GitHub Release with auto-generated release notes
+   - Sends an email notification
 
-Run:
-```bash
-git log --oneline $(git describe --tags --abbrev=0)..HEAD
-```
+## What to tell the user
 
-Show the commits to the user and ask them to confirm the bump type makes sense.
+Ask: "Does the current PR need a release? If so, which type: patch, minor, or major?"
 
-## Step 3 — Bump version
+Then tell them:
+- Add the appropriate `release:patch / release:minor / release:major` label to the PR on GitHub before merging
+- After merging, the CI takes 2–3 minutes and handles everything
+- They can watch progress at: https://github.com/khuynh22/mcp-wireshark/actions
 
-Update the version string in **both** files:
-- `pyproject.toml` → `version = "X.Y.Z"`
-- `src/mcp_wireshark/__init__.py` → `__version__ = "X.Y.Z"`
-- `mcp.json` → `"version": "X.Y.Z"`
+## If no label is added
 
-## Step 4 — Run full validation
+The PR merges cleanly with no version bump. The change ships in the next release whenever they add a label to a future PR.
 
-Run `/validate` (all four checks must pass). Do not proceed if any check fails.
+## Manual fallback
 
-## Step 5 — Commit and tag
-
-```bash
-git add pyproject.toml src/mcp_wireshark/__init__.py mcp.json
-git commit -m "chore: bump version to X.Y.Z"
-git tag vX.Y.Z
-git push && git push --tags
-```
-
-## Step 6 — Remind about PyPI
-
-Tell the user:
-```
-Version X.Y.Z is tagged and pushed. The auto-release CI will run.
-To publish to PyPI manually:
-  python -m build
-  twine upload dist/*
-```
-
-Do not push to PyPI automatically. That is a manual step the user controls.
+If auto-release failed, use the "Manual Release" workflow on GitHub Actions — it takes a version string and publishes that exact tag to PyPI.

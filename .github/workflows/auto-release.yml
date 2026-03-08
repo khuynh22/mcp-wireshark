@@ -112,13 +112,16 @@ jobs:
           # Update __init__.py
           sed -i "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" src/mcp_wireshark/__init__.py
 
-          echo "Updated version to $NEW_VERSION in pyproject.toml and __init__.py"
+          # Update mcp.json
+          sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" mcp.json
+
+          echo "Updated version to $NEW_VERSION in pyproject.toml, __init__.py, and mcp.json"
 
       - name: Commit version bump
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add pyproject.toml src/mcp_wireshark/__init__.py
+          git add pyproject.toml src/mcp_wireshark/__init__.py mcp.json
           git commit -m "chore: bump version to ${{ steps.new-version.outputs.version }}"
           git push
 

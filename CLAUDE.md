@@ -121,10 +121,15 @@ Or use the `/validate` skill which runs all four.
 
 - Follows semver: `MAJOR.MINOR.PATCH`
 - **Patch**: bug fixes, security fixes, no new tools
-- **Minor**: new tools, new parameters, README changes
-- **Breaking**: removing tools, changing required params, changing output format
-- Version is in two places: `pyproject.toml` and `src/mcp_wireshark/__init__.py` — update both
-- Use the `/release` skill to bump, tag, and push
+- **Minor**: new tools, new optional parameters, README changes
+- **Major**: removing tools, changing required params, breaking output format changes
+
+**You never touch version numbers manually.** The CI does it automatically:
+
+1. Add a label to the PR before merging: `release:patch`, `release:minor`, or `release:major`
+2. Merge — `auto-release.yml` bumps all three version locations (`pyproject.toml`, `__init__.py`, `mcp.json`), tags, publishes to PyPI, and creates a GitHub Release
+
+If no label is added, the PR merges without a release. Use the `/release` skill to decide which label to apply.
 
 ---
 
