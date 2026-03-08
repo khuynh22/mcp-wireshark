@@ -1,4 +1,5 @@
 # mcp-wireshark
+<!-- mcp-name: io.github.khuynh22/mcp-wireshark -->
 
 > Community-maintained. Not affiliated with Wireshark or Anthropic.
 

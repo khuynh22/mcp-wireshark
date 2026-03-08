@@ -1,0 +1,7 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties: {}
+  commandFunction: |-
+    () => ({ command: "mcp-wireshark", args: [] })
