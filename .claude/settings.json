@@ -1,0 +1,18 @@
+{
+    "permissions": {
+        "allow": [
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "NotebookRead",
+            "NotebookEdit",
+            "WebFetch",
+            "WebSearch",
+            "TodoRead",
+            "TodoWrite",
+            "mcp__*"
+        ]
+    }
+}
