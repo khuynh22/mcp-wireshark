@@ -15,22 +15,32 @@ This is an MCP server that gives AI assistants (Claude, Copilot, etc.) direct ac
 
 ```
 src/mcp_wireshark/
-  server.py   — Tool schemas (list_tools) + call routing (call_tool) + handlers
-  utils.py    — run_tshark(), run_dumpcap(), parse_packet_json(), WiresharkNotFoundError
-  types.py    — TypedDicts: PacketInfo, InterfaceInfo, ProtocolStats, TCPStream
-  cli.py      — Entry point: asyncio.run(server.main())
-  __init__.py — Public API + __version__
+  server.py        — Server instance + list_tools()/call_tool() routing only
+  read_tools.py    — Read-only tools: schemas, handlers, READ_TOOLS, READ_HANDLERS
+  write_tools.py   — Write tools (capture/export): schemas, handlers, WRITE_TOOLS, WRITE_HANDLERS
+  validation.py    — validate_file_path(), validate_display_filter(), security constants
+  utils.py         — run_tshark(), run_dumpcap(), parse_packet_json(), WiresharkNotFoundError
+  types.py         — TypedDicts: PacketInfo, InterfaceInfo, ProtocolStats, TCPStream
+  cli.py           — Entry point: asyncio.run(server.main())
+  __init__.py      — Public API + __version__
 tests/
-  test_server.py  — Validation logic + handler integration tests
-  test_utils.py   — run_tshark mocking
-  conftest.py     — Shared fixtures
+  test_server.py   — Validation logic + handler integration tests
+  test_utils.py    — run_tshark mocking
+  conftest.py      — Shared fixtures
 ```
 
+**Read vs Write — every new tool declares which:**
+
+- **Read tools** have no side effects (list interfaces, pcap analysis, version checks). They live in `read_tools.py` with `readOnlyHint=True`.
+- **Write tools** capture traffic, write files, or change state. They live in `write_tools.py` with `readOnlyHint=False, destructiveHint=False` (additive — they create new files but don't delete user data).
+
 **Adding a tool is always 4 steps:**
-1. Add `Tool(...)` entry in `list_tools()` in server.py
-2. Add `if name == "tool_name": return await handle_tool_name(arguments)` in `call_tool()`
-3. Write `async def handle_tool_name(arguments) -> list[TextContent]` in server.py
-4. Add tests in `tests/test_server.py`
+1. Decide read vs write.
+2. Append a `Tool(...)` entry (with `ToolAnnotations(...)`) to `READ_TOOLS` or `WRITE_TOOLS`.
+3. Write `async def handle_tool_name(arguments: dict[str, Any]) -> list[TextContent]` in the same module and register it in `READ_HANDLERS` / `WRITE_HANDLERS`.
+4. Add tests in `tests/test_server.py`.
+
+The router in `server.py` requires no edits — it dispatches by dict lookup.
 
 Use the `/add-tool` skill to scaffold this automatically.
 

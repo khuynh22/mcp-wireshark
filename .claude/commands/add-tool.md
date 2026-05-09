@@ -3,26 +3,45 @@ Scaffold a new MCP tool for this project following all project conventions.
 Ask the user for:
 1. **Tool name** (snake_case, e.g. `filter_goose`)
 2. **Description** — one sentence, what does this tool do for an AI assistant?
-3. **Parameters** — name, type, required/optional, description for each
-4. **tshark command** — what tshark arguments will this run? (e.g. `-r $file -q -z follow,tcp,ascii,$stream_id`)
+3. **Read or write** — does this tool only read state (file analysis, listing, version
+   checks) or does it capture traffic / write files? This decides which module the tool
+   lives in.
+4. **Parameters** — name, type, required/optional, description for each
+5. **tshark command** — what tshark arguments will this run? (e.g. `-r $file -q -z follow,tcp,ascii,$stream_id`)
 
-Then generate all four required changes in one response:
+Then generate all four required changes in one response.
 
-## Step 1 — Tool schema in `list_tools()` (server.py)
+If **read** → add to `src/mcp_wireshark/read_tools.py`.
+If **write** → add to `src/mcp_wireshark/write_tools.py`.
 
-Add a `Tool(...)` entry. Follow the exact style of existing tools. Use `"type": "number"` for numeric params, `"type": "string"` for strings. Mark required params in the `"required"` array.
+## Step 1 — Tool schema
 
-## Step 2 — Routing in `call_tool()` (server.py)
+Append a `Tool(...)` entry to the `READ_TOOLS` or `WRITE_TOOLS` list. Always include
+`ToolAnnotations(...)`:
 
-Add after the last `if name ==` block, before `return [TextContent(..., text=f"Unknown tool: {name}")]`:
+For read tools:
 ```python
-if name == "TOOL_NAME":
-    return await handle_TOOL_NAME(arguments)
+annotations=ToolAnnotations(title="Human title", readOnlyHint=True, openWorldHint=False),
 ```
 
-## Step 3 — Handler function (server.py)
+For write tools:
+```python
+annotations=ToolAnnotations(
+    title="Human title",
+    readOnlyHint=False,
+    destructiveHint=False,
+    idempotentHint=False,
+    openWorldHint=True,
+),
+```
 
-Place before `async def main()`. Follow this exact pattern:
+Use `"type": "number"` for numeric params, `"type": "string"` for strings. Mark
+required params in the `"required"` array.
+
+## Step 2 — Handler function
+
+Place inside the same module (`read_tools.py` or `write_tools.py`). Follow this
+exact pattern:
 
 ```python
 async def handle_TOOL_NAME(arguments: dict[str, Any]) -> list[TextContent]:
@@ -58,6 +77,16 @@ Rules:
 - Limit packet output to 5 items max when returning JSON; always include a total count
 - Prefer tshark `-q -z` statistics over raw packet JSON when the goal is summarization
 
+## Step 3 — Register the handler
+
+Add to the `READ_HANDLERS` or `WRITE_HANDLERS` dict at the bottom of the module:
+
+```python
+"TOOL_NAME": handle_TOOL_NAME,
+```
+
+The router in `server.py` does not need to change — it dispatches via dict lookup.
+
 ## Step 4 — Tests (tests/test_server.py)
 
 Add at minimum:
@@ -65,19 +94,28 @@ Add at minimum:
 2. A test for the happy path (mock `run_tshark` to return sample output)
 3. If the tool accepts a display filter, add an injection-attempt test
 
+Import handlers from the new module path:
+```python
+from mcp_wireshark.read_tools import handle_TOOL_NAME    # for read tools
+from mcp_wireshark.write_tools import handle_TOOL_NAME   # for write tools
+```
+
 ## Step 5 — Update mcp.json
 
-Add an entry to the `"tools"` array in `mcp.json`:
+Add an entry to the `"tools"` array. Read tools go in the read group (top), write
+tools at the bottom:
 ```json
 {
   "name": "TOOL_NAME",
+  "category": "read",        // or "write"
+  "readOnly": true,          // or false
   "description": "Same one-sentence description as the Tool schema"
 }
 ```
 
 ## Step 6 — Update README.md
 
-Add a row to the Tools table:
+Add a row to the **Read tools** table or **Write tools** table accordingly:
 ```markdown
 | `TOOL_NAME` | Description |
 ```

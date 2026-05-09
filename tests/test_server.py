@@ -5,11 +5,10 @@ from pathlib import Path
 import pytest
 from mcp.types import TextContent
 
-from mcp_wireshark.server import (
+from mcp_wireshark.read_tools import handle_list_interfaces, handle_read_pcap
+from mcp_wireshark.validation import (
     MAX_DURATION_SECONDS,
     MAX_PACKET_COUNT,
-    handle_list_interfaces,
-    handle_read_pcap,
     validate_display_filter,
     validate_file_path,
 )
