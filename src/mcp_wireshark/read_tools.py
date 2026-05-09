@@ -218,16 +218,26 @@ async def handle_read_pcap(arguments: dict[str, Any]) -> list[TextContent]:
         if display_filter:
             display_filter = validate_display_filter(display_filter)
 
-        args = ["-r", file_path, "-T", "json", "-c", str(packet_count)]
+        # tshark's -c counts raw frames BEFORE -Y is applied, so combining the
+        # two silently drops matches that aren't in the first N frames. When a
+        # filter is set we omit -c and slice in Python instead.
+        args = ["-r", file_path, "-T", "json"]
         if display_filter:
             args.extend(["-Y", display_filter])
+        else:
+            args.extend(["-c", str(packet_count)])
 
         output = await run_tshark(args, timeout=60)
 
         if output.strip():
             packets = json.loads(output)
-            count = len(packets) if isinstance(packets, list) else 1
-            preview = packets[:5] if isinstance(packets, list) else packets
+            if isinstance(packets, list):
+                packets = packets[:packet_count]
+                count = len(packets)
+                preview = packets[:5]
+            else:
+                count = 1
+                preview = packets
             return [
                 TextContent(
                     type="text",
@@ -263,13 +273,21 @@ async def handle_display_filter(arguments: dict[str, Any]) -> list[TextContent]:
 
         filter_expr = validate_display_filter(filter_expr)
 
-        args = ["-r", file_path, "-Y", filter_expr, "-T", "json", "-c", str(packet_count)]
+        # tshark's -c counts raw frames BEFORE -Y is applied, which would drop
+        # matches that aren't in the first N frames. Read all matches and slice
+        # in Python instead. MAX_PACKET_COUNT bounds the output size.
+        args = ["-r", file_path, "-Y", filter_expr, "-T", "json"]
         output = await run_tshark(args, timeout=60)
 
         if output.strip():
             packets = json.loads(output)
-            count = len(packets) if isinstance(packets, list) else 1
-            preview = packets[:5] if isinstance(packets, list) else packets
+            if isinstance(packets, list):
+                packets = packets[:packet_count]
+                count = len(packets)
+                preview = packets[:5]
+            else:
+                count = 1
+                preview = packets
             return [
                 TextContent(
                     type="text",

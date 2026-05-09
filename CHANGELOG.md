@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-09
+
+### Fixed
+
+- `read_pcap`, `display_filter`, `export_json`, and `live_capture` previously combined `tshark`'s `-c <count>` flag with `-Y <filter>`, but `-c` is applied to **raw** frames before the filter runs. Calls like `display_filter(filter="dns", packet_count=10)` would silently return zero packets if no DNS frames appeared in the first 10 raw frames of the pcap. The handlers now omit `-c` whenever a filter is set and slice the JSON output in Python instead, so `packet_count` always means "first N matching packets" — matching what users (and LLM callers) expect.
+
 ## [0.3.0] - 2026-05-09
 
 ### Added

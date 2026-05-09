@@ -122,10 +122,14 @@ async def handle_live_capture(arguments: dict[str, Any]) -> list[TextContent]:
         else:
             await run_tshark(args, timeout=duration + 10)
 
+        # tshark's -c counts raw frames before -Y is applied, so combining the
+        # two would silently drop matches outside the first N frames. Drop -c
+        # when filtering and slice in Python.
         read_args = ["-r", temp_path, "-T", "json"]
         if display_filter:
             read_args.extend(["-Y", display_filter])
-        read_args.extend(["-c", "100"])
+        else:
+            read_args.extend(["-c", "100"])
 
         output = await run_tshark(read_args, timeout=30)
 
@@ -133,8 +137,13 @@ async def handle_live_capture(arguments: dict[str, Any]) -> list[TextContent]:
 
         if output.strip():
             packets = json.loads(output)
-            count = len(packets) if isinstance(packets, list) else 1
-            preview = packets[:5] if isinstance(packets, list) else packets
+            if isinstance(packets, list):
+                packets = packets[:100]
+                count = len(packets)
+                preview = packets[:5]
+            else:
+                count = 1
+                preview = packets
             return [
                 TextContent(
                     type="text",
@@ -171,22 +180,32 @@ async def handle_export_json(arguments: dict[str, Any]) -> list[TextContent]:
         if display_filter:
             display_filter = validate_display_filter(display_filter)
 
-        args = ["-r", file_path, "-T", "json", "-c", str(packet_count)]
+        # tshark's -c counts raw frames before -Y is applied, so dropping it
+        # when a filter is set and slicing in Python is the only way to get
+        # exactly N matches written to disk.
+        args = ["-r", file_path, "-T", "json"]
         if display_filter:
             args.extend(["-Y", display_filter])
+        else:
+            args.extend(["-c", str(packet_count)])
 
         output = await run_tshark(args, timeout=120)
-        Path(output_path).write_text(output)
 
         if output.strip():
             packets = json.loads(output)
-            count = len(packets) if isinstance(packets, list) else 1
+            if isinstance(packets, list):
+                packets = packets[:packet_count]
+                count = len(packets)
+            else:
+                count = 1
+            Path(output_path).write_text(json.dumps(packets, indent=2))
             return [
                 TextContent(
                     type="text",
                     text=f"Exported {count} packet(s) from {file_path} to {output_path}",
                 )
             ]
+        Path(output_path).write_text(output)
         return [TextContent(type="text", text=f"No packets to export from {file_path}")]
 
     except Exception as e:
