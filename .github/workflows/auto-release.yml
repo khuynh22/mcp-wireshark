@@ -163,58 +163,6 @@ jobs:
             dist/*
           generate_release_notes: true
 
-      - name: Send success email
-        if: success()
-        uses: dawidd6/action-send-mail@v6
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "✅ mcp-wireshark v${{ steps.new-version.outputs.version }} released successfully"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
-          body: |
-            🎉 Release successful!
-
-            Package: mcp-wireshark
-            Version: ${{ steps.new-version.outputs.version }}
-            Previous: ${{ steps.current-version.outputs.version }}
-            Bump type: ${{ needs.check-merge.outputs.bump_type }}
-
-            PR: #${{ github.event.pull_request.number }}
-            Title: ${{ github.event.pull_request.title }}
-            Author: ${{ github.event.pull_request.user.login }}
-
-            Links:
-            - PyPI: https://pypi.org/project/mcp-wireshark/${{ steps.new-version.outputs.version }}/
-            - GitHub Release: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.new-version.outputs.version }}
-            - Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-      - name: Send failure email
-        if: failure()
-        uses: dawidd6/action-send-mail@v6
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          username: ${{ secrets.EMAIL_USERNAME }}
-          password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: "❌ mcp-wireshark release FAILED"
-          to: ${{ secrets.NOTIFICATION_EMAIL }}
-          from: GitHub Actions <${{ secrets.EMAIL_USERNAME }}>
-          body: |
-            ⚠️ Release failed!
-
-            Package: mcp-wireshark
-            Attempted version: ${{ steps.new-version.outputs.version }}
-            Bump type: ${{ needs.check-merge.outputs.bump_type }}
-
-            PR: #${{ github.event.pull_request.number }}
-            Title: ${{ github.event.pull_request.title }}
-
-            Please check the workflow logs:
-            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
   # Notify if no release label was found
   notify-no-release:
     name: No Release Label
