@@ -5,6 +5,7 @@ from typing import Any
 from mcp.server import Server
 from mcp.types import TextContent, Tool
 
+from .dissector_tools import DISSECTOR_HANDLERS, DISSECTOR_TOOLS
 from .read_tools import READ_HANDLERS, READ_TOOLS
 from .utils import WiresharkNotFoundError, check_wireshark_installed
 from .validation import (
@@ -31,7 +32,7 @@ __all__ = [
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     """Return all available MCP tools, read tools first then write tools."""
-    return [*READ_TOOLS, *WRITE_TOOLS]
+    return [*READ_TOOLS, *DISSECTOR_TOOLS, *WRITE_TOOLS]
 
 
 @app.call_tool()
@@ -49,6 +50,8 @@ async def call_tool(name: str, arguments: Any) -> list[TextContent]:
 
         if name in READ_HANDLERS:
             return await READ_HANDLERS[name](arguments)
+        if name in DISSECTOR_HANDLERS:
+            return await DISSECTOR_HANDLERS[name](arguments)
         if name in WRITE_HANDLERS:
             return await WRITE_HANDLERS[name](arguments)
 
