@@ -1,11 +1,9 @@
 """Tests for protocol-specific dissector tools."""
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from mcp.types import TextContent
 
 from mcp_wireshark.dissector_tools import (
     handle_decode_dns,
