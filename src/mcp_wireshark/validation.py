@@ -44,6 +44,17 @@ def validate_file_path(file_path: str) -> Path:
 def validate_display_filter(filter_expr: str) -> str:
     """Reject shell metacharacters in a Wireshark display filter.
 
+    Comparison operators (``>``, ``<``, ``>=``, ``<=``) and the boolean tokens
+    ``&&``/``||`` are legitimate Wireshark display-filter syntax — e.g.
+    ``goose.stNum > 0`` or ``tcp.flags.syn == 1 && tcp.flags.ack == 0``. They
+    are safe here because every tshark invocation goes through
+    ``asyncio.create_subprocess_exec`` with an explicit argv, so the shell
+    never sees them.
+
+    What we still reject are the characters that could break out of an argv
+    element if the value ever did reach a shell: ``;``, backtick, command
+    substitution (``$(``, ``${``), and bare newlines.
+
     Args:
         filter_expr: The filter expression to validate.
 
@@ -56,7 +67,7 @@ def validate_display_filter(filter_expr: str) -> str:
     if not filter_expr:
         return filter_expr
 
-    dangerous_patterns = [";", "&&", "||", "`", "$(", "${", "|", ">", "<", "\n", "\r"]
+    dangerous_patterns = [";", "`", "$(", "${", "\n", "\r"]
     for pattern in dangerous_patterns:
         if pattern in filter_expr:
             raise ValueError(f"Invalid character in display filter: {pattern}")

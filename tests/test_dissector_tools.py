@@ -1,4 +1,9 @@
-"""Tests for dissector_tools: expert_info, decode_protocol, protocol_stats."""
+"""Tests for the dissector tools: expert_info, decode_protocol, protocol_stats.
+
+These tools live in ``mcp_wireshark.read_tools`` alongside the other read-only
+tools. The tests are kept in a separate file so the cohesive protocol-dissector
+suite is easy to find and run.
+"""
 
 from pathlib import Path
 from typing import Any
@@ -6,15 +11,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from mcp_wireshark.dissector_tools import (
-    DISSECTOR_HANDLERS,
-    DISSECTOR_TOOLS,
+from mcp_wireshark.read_tools import (
     PROTOCOL_DEFAULTS,
+    READ_HANDLERS,
+    READ_TOOLS,
     STATS_VARIANTS,
     handle_decode_protocol,
     handle_expert_info,
     handle_protocol_stats,
 )
+
+DISSECTOR_TOOL_NAMES = {"expert_info", "decode_protocol", "protocol_stats"}
 
 FAKE_TSV_HTTP = (
     "frame.number\tip.src\tip.dst\thttp.request.method\thttp.request.uri\t"
@@ -52,19 +59,20 @@ FAKE_PHS = (
 # --- registration -----------------------------------------------------------
 
 
-def test_only_three_tools_exposed() -> None:
-    """Maintainer-requested minimal scope: expert_info, decode_protocol, protocol_stats."""
-    names = {t.name for t in DISSECTOR_TOOLS}
-    assert names == {"expert_info", "decode_protocol", "protocol_stats"}
+def test_dissector_tools_registered_in_read_tools() -> None:
+    exposed = {t.name for t in READ_TOOLS}
+    assert exposed >= DISSECTOR_TOOL_NAMES
 
 
-def test_all_tools_have_handlers() -> None:
-    for tool in DISSECTOR_TOOLS:
-        assert tool.name in DISSECTOR_HANDLERS, f"missing handler for {tool.name}"
+def test_all_dissector_tools_have_handlers() -> None:
+    for name in DISSECTOR_TOOL_NAMES:
+        assert name in READ_HANDLERS, f"missing handler for {name}"
 
 
-def test_all_tools_are_read_only() -> None:
-    for tool in DISSECTOR_TOOLS:
+def test_all_dissector_tools_are_read_only() -> None:
+    for tool in READ_TOOLS:
+        if tool.name not in DISSECTOR_TOOL_NAMES:
+            continue
         assert tool.annotations is not None
         assert tool.annotations.readOnlyHint is True
 
@@ -78,7 +86,7 @@ async def test_expert_info_success(tmp_path: Path) -> None:
     pcap.touch()
 
     with patch(
-        "mcp_wireshark.dissector_tools.run_tshark",
+        "mcp_wireshark.read_tools.run_tshark",
         AsyncMock(return_value=FAKE_EXPERT),
     ):
         result = await handle_expert_info({"file_path": str(pcap)})
@@ -98,7 +106,7 @@ async def test_expert_info_severity_arg_passed_through(tmp_path: Path) -> None:
         captured["args"] = args
         return FAKE_EXPERT
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
         await handle_expert_info({"file_path": str(pcap), "severity": "error"})
 
     assert "expert,error" in captured["args"]
@@ -133,7 +141,7 @@ async def test_decode_protocol_curated_http_defaults(tmp_path: Path) -> None:
         captured["args"] = args
         return FAKE_TSV_HTTP
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
         result = await handle_decode_protocol({"file_path": str(pcap), "protocol": "http"})
 
     # All curated HTTP fields should be passed as -e arguments.
@@ -151,7 +159,7 @@ async def test_decode_protocol_curated_goose_defaults(tmp_path: Path) -> None:
     pcap.touch()
 
     with patch(
-        "mcp_wireshark.dissector_tools.run_tshark",
+        "mcp_wireshark.read_tools.run_tshark",
         AsyncMock(return_value=FAKE_TSV_GOOSE),
     ):
         result = await handle_decode_protocol({"file_path": str(pcap), "protocol": "goose"})
@@ -164,9 +172,9 @@ async def test_decode_protocol_curated_goose_defaults(tmp_path: Path) -> None:
 async def test_decode_protocol_numeric_filter_allowed(tmp_path: Path) -> None:
     """Comparisons like 'goose.stNum > 0' must be accepted in the filter arg.
 
-    The strict ``validate_display_filter`` rejects ``>``/``<``; the relaxed
-    in-module validator must accept them since they are legitimate Wireshark
-    syntax and never reach a shell.
+    ``validate_display_filter`` permits ``>``/``<``/``&&``/``||`` because they
+    are legitimate Wireshark syntax and never reach a shell (we always invoke
+    tshark via ``create_subprocess_exec`` with an explicit argv).
     """
     pcap = tmp_path / "goose.pcap"
     pcap.touch()
@@ -177,7 +185,7 @@ async def test_decode_protocol_numeric_filter_allowed(tmp_path: Path) -> None:
         captured["args"] = args
         return FAKE_TSV_GOOSE
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
         result = await handle_decode_protocol(
             {
                 "file_path": str(pcap),
@@ -223,7 +231,7 @@ async def test_decode_protocol_custom_fields_override(tmp_path: Path) -> None:
         captured["args"] = args
         return "ftp.request.command\nUSER\n"
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
         result = await handle_decode_protocol(
             {
                 "file_path": str(pcap),
@@ -260,7 +268,7 @@ async def test_decode_protocol_packet_count_limit(tmp_path: Path) -> None:
     many = "frame.number\tip.src\n" + "".join(f"{i}\t10.0.0.{i}\n" for i in range(100))
 
     with patch(
-        "mcp_wireshark.dissector_tools.run_tshark",
+        "mcp_wireshark.read_tools.run_tshark",
         AsyncMock(return_value=many),
     ):
         result = await handle_decode_protocol(
@@ -281,7 +289,7 @@ async def test_decode_protocol_no_match(tmp_path: Path) -> None:
     pcap = tmp_path / "empty.pcap"
     pcap.touch()
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(return_value="")):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(return_value="")):
         result = await handle_decode_protocol({"file_path": str(pcap), "protocol": "http"})
 
     assert "no packets" in result[0].text.lower()
@@ -301,7 +309,7 @@ async def test_protocol_stats_phs(tmp_path: Path) -> None:
         captured["args"] = args
         return FAKE_PHS
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_tshark)):
         result = await handle_protocol_stats(
             {"file_path": str(pcap), "protocol": "io", "variant": "phs"}
         )
@@ -328,7 +336,7 @@ async def test_protocol_stats_truncates_long_output(tmp_path: Path) -> None:
 
     big = "\n".join(f"line {i}" for i in range(500))
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(return_value=big)):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(return_value=big)):
         result = await handle_protocol_stats(
             {
                 "file_path": str(pcap),
@@ -346,7 +354,7 @@ async def test_protocol_stats_empty_output(tmp_path: Path) -> None:
     pcap = tmp_path / "x.pcap"
     pcap.touch()
 
-    with patch("mcp_wireshark.dissector_tools.run_tshark", AsyncMock(return_value="")):
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(return_value="")):
         result = await handle_protocol_stats(
             {"file_path": str(pcap), "protocol": "io", "variant": "phs"}
         )
