@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-09
+
+### Fixed
+
+- `read_pcap`, `display_filter`, `export_json`, and `live_capture` previously combined `tshark`'s `-c <count>` flag with `-Y <filter>`, but `-c` is applied to **raw** frames before the filter runs. Calls like `display_filter(filter="dns", packet_count=10)` would silently return zero packets if no DNS frames appeared in the first 10 raw frames of the pcap. The handlers now omit `-c` whenever a filter is set and slice the JSON output in Python instead, so `packet_count` always means "first N matching packets" — matching what users (and LLM callers) expect.
+
+## [0.3.0] - 2026-05-09
+
+### Added
+
+- `ToolAnnotations` on every tool (`readOnlyHint`, `destructiveHint`, etc.) so MCP clients can surface side-effect risk before invocation
+- `read_tools.py` — read-only tools: `check_installation`, `list_interfaces`, `read_pcap`, `display_filter`, `summarize_pcap`, `stats_by_proto`, `follow_tcp`, `follow_udp`
+- `write_tools.py` — tools that capture traffic or write files: `live_capture`, `export_json`
+- `validation.py` — shared `validate_file_path()`, `validate_display_filter()`, security constants
+
+### Changed
+
+- `server.py` reduced to server instance + dict-based router; all handler logic moved into `read_tools.py` / `write_tools.py`
+- README rewritten around Claude Code adoption: verified `claude mcp add` install command, separate Read/Write tool tables, copy-paste prompt examples
+- `CLAUDE.md` architecture section and `/add-tool` skill updated for the read/write split
+- `mcp.json` tools reordered: read tools first, write tools last
+
+### Migration
+
+No tool names, schemas, or output formats changed. Internal Python imports of handler functions (`from mcp_wireshark.server import handle_*`) must be updated to `from mcp_wireshark.read_tools import handle_*` (or `write_tools` for `live_capture` / `export_json`). The public `app` export and `__version__` are unchanged.
+
 ## [0.1.1] - 2025-12-14
 
 ### Added

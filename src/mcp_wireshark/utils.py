@@ -1,7 +1,6 @@
 """Utility functions for Wireshark integration."""
 
 import asyncio
-import platform
 import shutil
 import subprocess
 from typing import Any
@@ -164,11 +163,3 @@ def parse_packet_json(packet_json: dict[str, Any]) -> PacketInfo:
             info["protocol"] = protocols.split(":")[-1].upper()
 
     return info
-
-
-def get_os_specific_interface_cmd() -> list[str]:
-    """Get OS-specific command for listing interfaces."""
-    system = platform.system()
-    if system == "Windows":
-        return ["-D"]
-    return ["-D"]

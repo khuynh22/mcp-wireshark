@@ -1,286 +1,238 @@
-# MCP Wireshark
+# mcp-wireshark
 
-> **Note:** This is an unofficial, community-maintained MCP server and is not affiliated with or endorsed by Wireshark, Anthropic, or the official Model Context Protocol project.
+> Community-maintained MCP server for [Wireshark](https://www.wireshark.org/) / `tshark`. Not affiliated with Wireshark or Anthropic.
+> Give your AI assistant direct access to packet captures. Ask Claude to summarize a `.pcap`, follow a TCP stream, filter for a specific protocol, or capture live traffic — all without leaving the chat.
 
-An MCP (Model Context Protocol) server that integrates Wireshark/tshark with AI tools and IDEs. Capture live network traffic, parse .pcap files, apply display filters, follow TCP streams, and export to JSON—all accessible through Claude Desktop, VS Code, or the command-line interface.
+> ![alt text](image.png)
 
 [![PyPI version](https://badge.fury.io/py/mcp-wireshark.svg)](https://badge.fury.io/py/mcp-wireshark)
+[![CI](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml/badge.svg)](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![CI](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml/badge.svg)](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![MCP](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io/)
 
-> **� New to this project?** Start here: **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete setup, publishing, and contribution guide!
+---
 
-📚 **[Quick Start](docs/QUICKSTART.md)** | 📖 **[API Docs](docs/API.md)** | 🤝 **[Contributing](CONTRIBUTING.md)** | 🚀 **[Publishing](docs/PUBLISHING.md)** | 💻 **[Dev Setup](docs/DEVELOPMENT.md)**
-
-## Features
-
-- 🔍 **List Network Interfaces**: Discover all available network interfaces for packet capture
-- 📡 **Live Capture**: Capture real-time network traffic from any interface
-- 📂 **Read PCAP Files**: Analyze existing .pcap and .pcapng files
-- 🔎 **Display Filters**: Apply Wireshark's powerful display filters
-- 📊 **Protocol Statistics**: Generate detailed protocol statistics
-- 🔗 **Follow TCP Streams**: Extract and analyze TCP stream payloads
-- 💾 **Export to JSON**: Export packet data in JSON format for further analysis
-
-## Prerequisites
-
-- Python 3.10 or higher
-- Wireshark/tshark installed on your system
-
-### Installing Wireshark/tshark
-
-**macOS** (using Homebrew):
-```bash
-brew install wireshark
-```
-
-**Ubuntu/Debian**:
-```bash
-sudo apt-get update
-sudo apt-get install tshark
-```
-
-**Windows**:
-Download and install from [Wireshark Downloads](https://www.wireshark.org/download.html)
-
-**Note**: On Linux, you may need to add your user to the `wireshark` group to capture packets without root:
-```bash
-sudo usermod -aG wireshark $USER
-sudo chmod +x /usr/bin/dumpcap
-```
-
-## Installation
-
-Install from PyPI:
+## Quick start with Claude Code
 
 ```bash
 pip install mcp-wireshark
+claude mcp add --transport stdio --scope user mcp-wireshark -- mcp-wireshark
 ```
 
-Or install from source:
+That's it. Open Claude Code and try:
+
+> "Summarize ./capture.pcap and tell me which IPs talked the most."
+
+`--scope user` makes the server available across every Claude Code project. Drop the flag to install it for the current project only. See [`claude mcp` docs](https://code.claude.com/docs/en/mcp) for more.
+
+### Verify the install
 
 ```bash
-git clone https://github.com/khuynh22/mcp-wireshark.git
-cd mcp-wireshark
-pip install -e .
+claude mcp list
 ```
 
-## Usage
+You should see `mcp-wireshark` listed. Inside Claude Code, ask:
 
-### As an MCP Server
+> "Run check_installation."
 
-#### Claude Desktop
+If `tshark` is on your `PATH`, it returns the version. If not, see [troubleshooting](#troubleshooting).
 
-Add to your Claude Desktop configuration file:
+---
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-**Linux**: `~/.config/Claude/claude_desktop_config.json`
+## Tools
+
+The server exposes 13 tools, split cleanly between **read tools** (safe, no side effects) and **write tools** (capture traffic or write files). Both groups are annotated with the standard MCP `readOnlyHint` so any compliant client can surface the distinction.
+
+### Read tools
+
+Safe to call freely — they only inspect state.
+
+| Tool                 | What it does                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `check_installation` | Verify tshark is installed and show version                                                   |
+| `list_interfaces`    | List network interfaces available to capture from                                             |
+| `read_pcap`          | Read packets from a `.pcap` / `.pcapng` file (preview + total count)                          |
+| `display_filter`     | Apply a Wireshark display filter to a pcap                                                    |
+| `summarize_pcap`     | High-level summary: I/O stats, protocol hierarchy, top talkers                                |
+| `stats_by_proto`     | Protocol hierarchy statistics                                                                 |
+| `follow_tcp`         | Reassemble a TCP stream and return its payload                                                |
+| `follow_udp`         | Reassemble a UDP stream and return its payload                                                |
+| `expert_info`        | tshark expert analysis: warnings, errors, and notes grouped by severity                       |
+| `decode_protocol`    | Extract protocol fields as a TSV table. Curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, ICMP; arbitrary fields for any other protocol |
+| `protocol_stats`     | Aggregate `-z` reports (protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB stats)     |
+
+### Write tools
+
+These create files or capture live traffic. Compliant clients may prompt before invoking.
+
+| Tool           | What it does                                                               |
+| -------------- | -------------------------------------------------------------------------- |
+| `live_capture` | Capture live traffic from an interface (capped at 5 minutes / 10k packets) |
+| `export_json`  | Export packets from a pcap to a JSON file at a path you choose             |
+
+---
+
+## Example prompts
+
+Drop these into Claude Code as-is:
+
+```
+List my network interfaces.
+Summarize ./traffic.pcap.
+From ./traffic.pcap, show me only HTTP requests.
+Follow TCP stream 0 in ./traffic.pcap and tell me what protocol is in it.
+Capture 30 seconds of traffic on Wi-Fi filtered to tcp.port == 443.
+Export every DNS packet from ./traffic.pcap to ./dns.json.
+Decode the GOOSE messages in ./substation.pcapng — only stNum >= 1.
+Run expert analysis on ./traffic.pcap and group findings by severity.
+Show me the IP conversations in ./traffic.pcap.
+```
+
+### Useful display filters
+
+| Filter                                     | Matches                         |
+| ------------------------------------------ | ------------------------------- |
+| `tcp.port == 80`                           | HTTP                            |
+| `tcp.port == 443`                          | HTTPS                           |
+| `dns`                                      | All DNS                         |
+| `http.request`                             | HTTP requests only              |
+| `ip.addr == 10.0.0.1`                      | Traffic to/from a specific host |
+| `tcp.flags.syn == 1 && tcp.flags.ack == 0` | TCP SYN packets only            |
+
+For substation engineers analyzing IEC 61850 traffic:
+
+| Filter            | Matches                           |
+| ----------------- | --------------------------------- |
+| `goose`           | All GOOSE messages                |
+| `goose.stNum > 0` | GOOSE messages with state changes |
+| `mms`             | All MMS traffic                   |
+| `sv`              | Sampled Values                    |
+
+---
+
+## Other clients
+
+Anything that speaks MCP works. The package installs an `mcp-wireshark` binary on `PATH`.
+
+<details>
+<summary><b>Claude Desktop</b></summary>
+
+Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
-  "mcpServers": {
-    "wireshark": {
-      "command": "mcp-wireshark",
-      "args": [],
-      "env": {}
+    "mcpServers": {
+        "wireshark": {
+            "command": "mcp-wireshark"
+        }
     }
-  }
 }
 ```
 
-#### VS Code
+</details>
 
-Add to your VS Code settings.json:
+<details>
+<summary><b>VS Code (Copilot / GitHub Copilot Chat)</b></summary>
+
+Create `.vscode/mcp.json` in your workspace:
 
 ```json
 {
-  "mcp.servers": {
-    "wireshark": {
-      "command": "mcp-wireshark",
-      "args": [],
-      "env": {}
+    "servers": {
+        "wireshark": {
+            "command": "mcp-wireshark"
+        }
     }
-  }
 }
 ```
 
-### Command Line
+</details>
 
-Run the MCP server:
+<details>
+<summary><b>Cursor / Windsurf / others</b></summary>
+
+Use the same stdio invocation: `command: mcp-wireshark`. No transport flags.
+
+</details>
+
+---
+
+## Prerequisites
+
+- Python **3.10+**
+- [Wireshark](https://www.wireshark.org/download.html) installed; `tshark` reachable on `PATH`
+
+Install with `pip` or `uv`:
 
 ```bash
-mcp-wireshark
+pip install mcp-wireshark
+# or
+uvx mcp-wireshark
 ```
 
-The server will communicate using stdio (standard input/output) following the MCP protocol.
+---
 
-## Available Tools
+## Troubleshooting
 
-### 1. list_interfaces
+<details>
+<summary><b>tshark not found on Windows</b></summary>
 
-List all available network interfaces for packet capture.
+Add Wireshark to your **system** `PATH`:
 
-**Example**:
-```
-Use the list_interfaces tool to see available network interfaces
-```
+1. Press `Win+R` → run `sysdm.cpl` → **Advanced** → **Environment Variables**
+2. Edit `Path` → add `C:\Program Files\Wireshark`
+3. Restart your terminal and Claude Code, then re-run `check_installation`
 
-### 2. live_capture
+(Avoid passing `PATH` through `claude mcp add --env` — values are taken literally, no `%PATH%` expansion.)
 
-Capture live network traffic from a specified interface.
+</details>
 
-**Parameters**:
-- `interface` (required): Network interface name (e.g., "eth0", "Wi-Fi")
-- `duration` (optional): Capture duration in seconds (default: 10)
-- `packet_count` (optional): Maximum number of packets to capture
-- `display_filter` (optional): Wireshark display filter to apply
+<details>
+<summary><b>Permission denied capturing on Linux</b></summary>
 
-**Example**:
-```
-Capture packets from eth0 for 30 seconds with filter "tcp.port == 80"
+Add yourself to the `wireshark` group, then log out and back in:
+
+```bash
+sudo usermod -aG wireshark $USER
 ```
 
-### 3. read_pcap
+</details>
 
-Read and analyze packets from a .pcap or .pcapng file.
+<details>
+<summary><b>"No packets captured" from live_capture</b></summary>
 
-**Parameters**:
-- `file_path` (required): Path to the .pcap or .pcapng file
-- `packet_count` (optional): Maximum number of packets to read (default: 100)
-- `display_filter` (optional): Wireshark display filter to apply
+- Confirm the interface name from `list_interfaces` (Wireshark uses different names than `ifconfig`/`ip`)
+- On macOS, you may need to install ChmodBPF (ships with the Wireshark `.dmg`)
+- Check that no display filter is excluding everything
+    </details>
 
-**Example**:
-```
-Read the first 50 packets from capture.pcap
-```
-
-### 4. display_filter
-
-Apply a Wireshark display filter to a pcap file.
-
-**Parameters**:
-- `file_path` (required): Path to the .pcap or .pcapng file
-- `filter` (required): Wireshark display filter expression
-- `packet_count` (optional): Maximum number of packets to return (default: 100)
-
-**Example**:
-```
-Filter packets from capture.pcap where tcp.port == 443
-```
-
-### 5. stats_by_proto
-
-Generate protocol statistics from a pcap file.
-
-**Parameters**:
-- `file_path` (required): Path to the .pcap or .pcapng file
-
-**Example**:
-```
-Generate protocol statistics for capture.pcap
-```
-
-### 6. follow_tcp
-
-Follow a TCP stream and extract payload data.
-
-**Parameters**:
-- `file_path` (required): Path to the .pcap or .pcapng file
-- `stream_id` (optional): TCP stream ID to follow (default: 0)
-
-**Example**:
-```
-Follow TCP stream 0 from capture.pcap
-```
-
-### 7. export_json
-
-Export packets from a pcap file to JSON format.
-
-**Parameters**:
-- `file_path` (required): Path to the .pcap or .pcapng file
-- `output_path` (required): Path to save the JSON output
-- `packet_count` (optional): Maximum number of packets to export (default: 1000)
-- `display_filter` (optional): Wireshark display filter to apply
-
-**Example**:
-```
-Export first 500 HTTP packets from capture.pcap to output.json
-```
-
-## Common Display Filters
-
-Here are some useful Wireshark display filters:
-
-- `tcp.port == 80` - HTTP traffic
-- `tcp.port == 443` - HTTPS traffic
-- `http` - All HTTP packets
-- `dns` - DNS queries and responses
-- `ip.addr == 192.168.1.1` - Traffic to/from specific IP
-- `tcp.flags.syn == 1` - TCP SYN packets
-- `http.request.method == "GET"` - HTTP GET requests
-- `tcp.stream eq 0` - Packets from TCP stream 0
-
-For more filters, see the [Wireshark Display Filter Reference](https://www.wireshark.org/docs/dfref/).
-
-## Cross-Platform Support
-
-mcp-wireshark is designed to work across multiple platforms:
-
-- **macOS**: Full support with Homebrew-installed Wireshark
-- **Linux**: Full support with apt/yum-installed tshark
-- **Windows**: Full support with official Wireshark installer
-
-The tool uses `dumpcap` when available (recommended for non-root captures) and falls back to `tshark` when needed.
+---
 
 ## Development
 
-Want to contribute? See our comprehensive guides:
-
-- **[Development Setup Guide](docs/DEVELOPMENT.md)** - Complete environment setup for contributors
-- **[Publishing Guide](docs/PUBLISHING.md)** - How to publish to PyPI
-- **[Contributing Guide](CONTRIBUTING.md)** - Contribution guidelines and workflow
-
-### Quick Start for Developers
-
 ```bash
-# Clone and setup
 git clone https://github.com/khuynh22/mcp-wireshark.git
 cd mcp-wireshark
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -e ".[dev]"
 
-# Run quality checks
-pytest                    # Run tests
-black src tests          # Format code
-ruff check src tests     # Lint
-mypy src                 # Type check
+pytest                   # tests
+black src tests          # format
+ruff check src tests     # lint
+mypy src                 # type check
 ```
 
-## Examples
+The codebase is organized so new tools land in one of two clearly-scoped files:
 
-See the [examples](examples/) directory for sample scripts and usage patterns.
+- **`src/mcp_wireshark/read_tools.py`** — anything that just inspects state
+- **`src/mcp_wireshark/write_tools.py`** — anything that captures traffic or writes files
 
-## Contributing
+`server.py` only contains routing. See [CLAUDE.md](CLAUDE.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Security
+
+Every file path is validated (`..` rejected, extension allow-listed). Every display filter is checked for shell metacharacters. tshark is always invoked via `asyncio.create_subprocess_exec`, never `shell=True`. Hard caps: 10k packets per call, 5 min per live capture. See [SECURITY.md](SECURITY.md).
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built on top of [Wireshark/tshark](https://www.wireshark.org/)
-- Uses [pyshark](https://github.com/KimiNewt/pyshark) for Python integration
-- Implements the [Model Context Protocol](https://modelcontextprotocol.io/)
-
-## Support
-
-For issues, questions, or contributions, please visit the [GitHub repository](https://github.com/khuynh22/mcp-wireshark).
+MIT — see [LICENSE](LICENSE).
