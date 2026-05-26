@@ -41,22 +41,25 @@ If `tshark` is on your `PATH`, it returns the version. If not, see [troubleshoot
 
 ## Tools
 
-The server exposes 10 tools, split cleanly between **read tools** (safe, no side effects) and **write tools** (capture traffic or write files). Both groups are annotated with the standard MCP `readOnlyHint` so any compliant client can surface the distinction.
+The server exposes 13 tools, split cleanly between **read tools** (safe, no side effects) and **write tools** (capture traffic or write files). Both groups are annotated with the standard MCP `readOnlyHint` so any compliant client can surface the distinction.
 
 ### Read tools
 
 Safe to call freely — they only inspect state.
 
-| Tool                 | What it does                                                         |
-| -------------------- | -------------------------------------------------------------------- |
-| `check_installation` | Verify tshark is installed and show version                          |
-| `list_interfaces`    | List network interfaces available to capture from                    |
-| `read_pcap`          | Read packets from a `.pcap` / `.pcapng` file (preview + total count) |
-| `display_filter`     | Apply a Wireshark display filter to a pcap                           |
-| `summarize_pcap`     | High-level summary: I/O stats, protocol hierarchy, top talkers       |
-| `stats_by_proto`     | Protocol hierarchy statistics                                        |
-| `follow_tcp`         | Reassemble a TCP stream and return its payload                       |
-| `follow_udp`         | Reassemble a UDP stream and return its payload                       |
+| Tool                 | What it does                                                                                  |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `check_installation` | Verify tshark is installed and show version                                                   |
+| `list_interfaces`    | List network interfaces available to capture from                                             |
+| `read_pcap`          | Read packets from a `.pcap` / `.pcapng` file (preview + total count)                          |
+| `display_filter`     | Apply a Wireshark display filter to a pcap                                                    |
+| `summarize_pcap`     | High-level summary: I/O stats, protocol hierarchy, top talkers                                |
+| `stats_by_proto`     | Protocol hierarchy statistics                                                                 |
+| `follow_tcp`         | Reassemble a TCP stream and return its payload                                                |
+| `follow_udp`         | Reassemble a UDP stream and return its payload                                                |
+| `expert_info`        | tshark expert analysis: warnings, errors, and notes grouped by severity                       |
+| `decode_protocol`    | Extract protocol fields as a TSV table. Curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, ICMP; arbitrary fields for any other protocol |
+| `protocol_stats`     | Aggregate `-z` reports (protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB stats)     |
 
 ### Write tools
 
@@ -80,6 +83,9 @@ From ./traffic.pcap, show me only HTTP requests.
 Follow TCP stream 0 in ./traffic.pcap and tell me what protocol is in it.
 Capture 30 seconds of traffic on Wi-Fi filtered to tcp.port == 443.
 Export every DNS packet from ./traffic.pcap to ./dns.json.
+Decode the GOOSE messages in ./substation.pcapng — only stNum >= 1.
+Run expert analysis on ./traffic.pcap and group findings by severity.
+Show me the IP conversations in ./traffic.pcap.
 ```
 
 ### Useful display filters
