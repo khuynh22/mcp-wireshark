@@ -80,8 +80,8 @@ PROTOCOL_DEFAULTS: dict[str, list[str]] = {
         "mms.invokeID",
         "mms.confirmedServiceRequest",
         "mms.confirmedServiceResponse",
-        "mms.domainID",
-        "mms.itemID",
+        "mms.domainId",
+        "mms.objectName_domain_specific_itemId",
     ],
     "sv": [
         "frame.number",
