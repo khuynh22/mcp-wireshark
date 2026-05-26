@@ -1,9 +1,11 @@
 name: Auto Release
 
-# Triggers when a PR is merged to main
+# Triggers on push to main (i.e. after a PR is merged). Using ``push`` instead
+# of ``pull_request: closed`` so the workflow has access to repository secrets
+# even when the merged PR originated from a fork — fork PRs do not get secrets
+# under any ``pull_request`` event.
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
 
 permissions:
@@ -11,34 +13,49 @@ permissions:
   pull-requests: read
 
 jobs:
-  # Check if PR was merged (not just closed)
+  # Look up the PR associated with this commit and read its labels.
   check-merge:
-    name: Check if PR was merged
+    name: Check merge commit for release label
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true
     outputs:
       should_release: ${{ steps.check-labels.outputs.should_release }}
       bump_type: ${{ steps.check-labels.outputs.bump_type }}
+      pr_number: ${{ steps.check-labels.outputs.pr_number }}
+      pr_title: ${{ steps.check-labels.outputs.pr_title }}
     steps:
-      - name: Check PR labels for release type
+      - name: Look up PR labels for this commit
         id: check-labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LABELS='${{ toJson(github.event.pull_request.labels.*.name) }}'
-          echo "PR Labels: $LABELS"
+          # Commits pushed directly to main (e.g. the version-bump commit from
+          # this workflow itself) have no PR — the API returns []. That short-
+          # circuits the release path and prevents recursive triggers.
+          PR_JSON=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls")
+          LABELS=$(echo "$PR_JSON" | jq -r '[.[].labels[].name] | join(",")')
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // ""')
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.[0].title // ""')
+          echo "PR labels: $LABELS"
+          echo "PR number: $PR_NUMBER"
+
+          {
+            echo "pr_number=$PR_NUMBER"
+            echo "pr_title=$PR_TITLE"
+          } >> "$GITHUB_OUTPUT"
 
           if echo "$LABELS" | grep -q "release:major"; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-            echo "bump_type=major" >> $GITHUB_OUTPUT
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "bump_type=major" >> "$GITHUB_OUTPUT"
           elif echo "$LABELS" | grep -q "release:minor"; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-            echo "bump_type=minor" >> $GITHUB_OUTPUT
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "bump_type=minor" >> "$GITHUB_OUTPUT"
           elif echo "$LABELS" | grep -q "release:patch"; then
-            echo "should_release=true" >> $GITHUB_OUTPUT
-            echo "bump_type=patch" >> $GITHUB_OUTPUT
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "bump_type=patch" >> "$GITHUB_OUTPUT"
           else
-            echo "should_release=false" >> $GITHUB_OUTPUT
-            echo "bump_type=none" >> $GITHUB_OUTPUT
-            echo "No release label found. Add 'release:major', 'release:minor', or 'release:patch' label to trigger a release."
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "bump_type=none" >> "$GITHUB_OUTPUT"
+            echo "No release label found. Add 'release:major', 'release:minor', or 'release:patch' to the merged PR to trigger a release."
           fi
 
   # Bump version, create tag, and publish
