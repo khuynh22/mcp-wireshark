@@ -3,7 +3,7 @@
 > Community-maintained MCP server for [Wireshark](https://www.wireshark.org/) / `tshark`. Not affiliated with Wireshark or Anthropic.
 > Give your AI assistant direct access to packet captures. Ask Claude to summarize a `.pcap`, follow a TCP stream, filter for a specific protocol, or capture live traffic — all without leaving the chat.
 
-> ![alt text](image.png)
+![Claude using mcp-wireshark to analyze a capture](demo/chat.gif)
 
 [![PyPI version](https://badge.fury.io/py/mcp-wireshark.svg)](https://badge.fury.io/py/mcp-wireshark)
 [![CI](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml/badge.svg)](https://github.com/khuynh22/mcp-wireshark/actions/workflows/ci.yml)
@@ -69,6 +69,25 @@ These create files or capture live traffic. Compliant clients may prompt before 
 | -------------- | -------------------------------------------------------------------------- |
 | `live_capture` | Capture live traffic from an interface (capped at 5 minutes / 10k packets) |
 | `export_json`  | Export packets from a pcap to a JSON file at a path you choose             |
+
+---
+
+## See it in action
+
+These clips run the real tools against [`demo/demo.pcapng`](demo/demo.pcapng) — a
+short home-network capture. Regenerate them with `python demo/render_gif.py <scene>`.
+
+**`summarize_pcap` — characterize an unknown capture at a glance**
+
+![summarize_pcap demo](demo/summarize.gif)
+
+**`decode_protocol` — filter to a protocol and get a compact table (here: TLS SNI and DNS-over-HTTPS lookups)**
+
+![decode_protocol demo](demo/filter.gif)
+
+**`expert_info` — let tshark surface the warnings and anomalies for you**
+
+![expert_info demo](demo/expert.gif)
 
 ---
 

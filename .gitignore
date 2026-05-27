@@ -28,6 +28,7 @@ venv/
 env/
 ENV/
 .venv
+.venv-demo/
 .env
 
 # IDE
