@@ -8,6 +8,8 @@ import pytest
 from mcp.types import TextContent
 
 from mcp_wireshark.read_tools import (
+    READ_HANDLERS,
+    handle_analyze_iec61850,
     handle_display_filter,
     handle_list_interfaces,
     handle_read_pcap,
@@ -252,3 +254,79 @@ async def test_export_json_writes_capped_count(tmp_path: Path) -> None:
     assert "Exported 5 packet(s)" in result[0].text
     written = json.loads(out.read_text())
     assert len(written) == 5
+
+
+# --------------------------------------------------------------------------- #
+# analyze_iec61850 — handler wiring, validation, and tshark arg construction
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_analyze_iec61850_registered() -> None:
+    assert READ_HANDLERS.get("analyze_iec61850") is handle_analyze_iec61850
+
+
+@pytest.mark.asyncio
+async def test_analyze_iec61850_rejects_bad_protocol(tmp_path: Path) -> None:
+    pcap = tmp_path / "t.pcap"
+    pcap.touch()
+    result = await handle_analyze_iec61850({"file_path": str(pcap), "protocol": "ftp"})
+    text = result[0].text
+    assert "goose" in text
+    assert "must be" in text or "one of" in text
+
+
+@pytest.mark.asyncio
+async def test_analyze_iec61850_file_not_found() -> None:
+    result = await handle_analyze_iec61850({"file_path": "/nope/x.pcap", "protocol": "goose"})
+    assert "not found" in result[0].text.lower() or "error" in result[0].text.lower()
+
+
+@pytest.mark.asyncio
+async def test_analyze_iec61850_builds_field_args_and_formats(tmp_path: Path) -> None:
+    pcap = tmp_path / "t.pcap"
+    pcap.touch()
+    captured: dict[str, list[str]] = {}
+
+    tsv = (
+        "frame.number\tframe.time_epoch\teth.dst\tgoose.gocbRef\tgoose.stNum\t"
+        "goose.sqNum\tgoose.timeAllowedtoLive\tgoose.ndsCom\tgoose.simulation\n"
+        "1\t0.0\t01:0c:cd:01:00:01\tIED1/LLN0$GO$g\t1\t47\t2000\t0\t0\n"
+        "2\t0.5\t01:0c:cd:01:00:01\tIED1/LLN0$GO$g\t1\t51\t2000\t0\t0\n"
+    )
+
+    async def fake_run_tshark(
+        args: list[str], timeout: int = 30, input_data: str | None = None  # noqa: ARG001
+    ) -> str:
+        captured["args"] = args
+        return tsv
+
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_run_tshark)):
+        result = await handle_analyze_iec61850(
+            {"file_path": str(pcap), "protocol": "goose", "filter": "goose.stNum > 0"}
+        )
+
+    args = captured["args"]
+    assert "-T" in args
+    assert args[args.index("-T") + 1] == "fields"
+    assert "-e" in args
+    assert "goose.stNum" in args  # field columns passed
+    yi = args.index("-Y")
+    assert args[yi + 1] == "(goose) and (goose.stNum > 0)"
+    assert "[FAIL]" in result[0].text
+    assert "sqNum gap" in result[0].text
+
+
+@pytest.mark.asyncio
+async def test_analyze_iec61850_no_packets(tmp_path: Path) -> None:
+    pcap = tmp_path / "t.pcap"
+    pcap.touch()
+
+    async def fake_run_tshark(
+        args: list[str], timeout: int = 30, input_data: str | None = None  # noqa: ARG001
+    ) -> str:
+        return ""  # tshark found nothing
+
+    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_run_tshark)):
+        result = await handle_analyze_iec61850({"file_path": str(pcap), "protocol": "sv"})
+    assert "No SV packets" in result[0].text or "no sv packets" in result[0].text.lower()

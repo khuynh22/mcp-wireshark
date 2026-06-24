@@ -11,8 +11,24 @@ from typing import Any
 
 from mcp.types import TextContent, Tool, ToolAnnotations
 
+from .iec61850 import (
+    BASE_FILTERS,
+    FIELD_SETS,
+    analyze_goose,
+    analyze_mms,
+    analyze_sv,
+    format_report,
+    parse_field_rows,
+)
 from .utils import run_tshark
 from .validation import MAX_PACKET_COUNT, validate_display_filter, validate_file_path
+
+# Dispatch table mapping a protocol token to its analyzer (see iec61850.py).
+_IEC_ANALYZERS = {
+    "goose": analyze_goose,
+    "sv": analyze_sv,
+    "mms": analyze_mms,
+}
 
 
 def _read_only(title: str) -> ToolAnnotations:
@@ -431,6 +447,42 @@ READ_TOOLS: list[Tool] = [
                 },
             },
             "required": ["file_path", "protocol", "variant"],
+        },
+    ),
+    Tool(
+        name="analyze_iec61850",
+        description=(
+            "Analyze an IEC 61850 capture for protocol health and return a "
+            "compact, worst-first OK/WARN/FAIL report per source. protocol is "
+            "one of 'goose' (stNum/sqNum gaps, timeAllowedtoLive violations, "
+            "state-change storms), 'sv' (smpCnt continuity, loss of time sync, "
+            "confRev changes), or 'mms' (error/reject PDUs, unpaired requests, "
+            "slow responses). Scans the whole capture but returns only a bounded "
+            "summary, so it is safe on high-rate SV streams."
+        ),
+        annotations=_read_only("Analyze IEC 61850 health"),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the .pcap or .pcapng file",
+                },
+                "protocol": {
+                    "type": "string",
+                    "enum": ["goose", "sv", "mms"],
+                    "description": "IEC 61850 protocol to analyze",
+                },
+                "filter": {
+                    "type": "string",
+                    "description": (
+                        "Optional display filter ANDed with the protocol filter "
+                        "to scope to one gocbRef/svID/host (e.g. "
+                        'goose.gocbRef contains "gcb01")'
+                    ),
+                },
+            },
+            "required": ["file_path", "protocol"],
         },
     ),
 ]
@@ -892,6 +944,57 @@ async def handle_protocol_stats(arguments: dict[str, Any]) -> list[TextContent]:
         return [TextContent(type="text", text=f"Error running stats: {e}")]
 
 
+async def handle_analyze_iec61850(arguments: dict[str, Any]) -> list[TextContent]:
+    """Analyze GOOSE/SV/MMS health and return a worst-first text report."""
+    file_path = arguments["file_path"]
+    protocol = str(arguments.get("protocol", "")).strip().lower()
+    user_filter = arguments.get("filter")
+
+    try:
+        if protocol not in BASE_FILTERS:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Error: 'protocol' must be one of {', '.join(sorted(BASE_FILTERS))}.",
+                )
+            ]
+
+        validated_path = validate_file_path(file_path)
+        if not validated_path.exists():
+            return [TextContent(type="text", text=f"Error: File not found: {file_path}")]
+        file_path = str(validated_path)
+
+        base_filter = BASE_FILTERS[protocol]
+        if user_filter:
+            user_filter = validate_display_filter(user_filter)
+            combined_filter = f"({base_filter}) and ({user_filter})"
+        else:
+            combined_filter = base_filter
+
+        columns = FIELD_SETS[protocol]
+        args = ["-r", file_path, "-Y", combined_filter, "-T", "fields"]
+        for column in columns:
+            args.extend(["-e", column])
+        args.extend(["-E", "header=y", "-E", "separator=\t", "-E", "quote=n"])
+
+        output = await run_tshark(args, timeout=120)
+        rows = parse_field_rows(output, columns)
+        if not rows:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"No {protocol.upper()} packets found in {file_path}"
+                    + (f" matching filter '{user_filter}'" if user_filter else ""),
+                )
+            ]
+
+        report = _IEC_ANALYZERS[protocol](rows)
+        return [TextContent(type="text", text=format_report(protocol, file_path, report))]
+
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error analyzing IEC 61850 capture: {e}")]
+
+
 READ_HANDLERS = {
     "check_installation": handle_check_installation,
     "list_interfaces": handle_list_interfaces,
@@ -904,4 +1007,5 @@ READ_HANDLERS = {
     "expert_info": handle_expert_info,
     "decode_protocol": handle_decode_protocol,
     "protocol_stats": handle_protocol_stats,
+    "analyze_iec61850": handle_analyze_iec61850,
 }

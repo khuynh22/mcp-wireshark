@@ -275,9 +275,7 @@ def analyze_sv(rows: list[dict[str, str]]) -> ProtocolReport:
                     )
                 if psynch in (1, 2) and synch == 0:
                     anomalies.append(
-                        Anomaly(
-                            "FAIL", frame, f"loss of sync @frame {frame}: smpSynch {psynch}->0"
-                        )
+                        Anomaly("FAIL", frame, f"loss of sync @frame {frame}: smpSynch {psynch}->0")
                     )
                 if confrev != pconf:
                     anomalies.append(
