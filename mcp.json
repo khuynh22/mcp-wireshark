@@ -77,6 +77,10 @@
       "description": "Follow a UDP stream and extract payload data"
     },
     {
+      "name": "analyze_iec61850",
+      "description": "Analyze GOOSE/SV/MMS captures for health anomalies; returns a worst-first OK/WARN/FAIL report per source"
+    },
+    {
       "name": "live_capture",
       "description": "Capture live network traffic from a specified interface"
     },
