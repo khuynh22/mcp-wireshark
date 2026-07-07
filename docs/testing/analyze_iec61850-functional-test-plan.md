@@ -50,6 +50,23 @@ Invoke-WebRequest "$base/GOOSE/Sample_File_GOOSE.pcap"                          
 More MMS service captures (cancel, kill, takeControl, …) live in the same
 `MMS - Specific Commands/` directory if deeper MMS coverage is wanted.
 
+### 2.3 Real SV captures with labeled ground truth (mgadelha/Sampled_Values)
+
+Real merging-unit traffic (60 Hz, 4800 samples/s, 9-2LE) where the fault condition
+is part of the dataset's own labeling — independent validation of the SV checks.
+Linked from the Wireshark wiki's IEC 61850-9-2 section. Plus the wiki's canonical
+MMS sample:
+
+```powershell
+cd testdata
+$b = 'https://raw.githubusercontent.com/mgadelha/Sampled_Values/master'
+Invoke-WebRequest "$b/SV_Normal_Traffic.cap" -OutFile sv_normal_real.cap
+Invoke-WebRequest "$b/SV_loss_Sync.cap"      -OutFile sv_loss_sync_real.cap
+Invoke-WebRequest "$b/SV_packet_Loss.cap"    -OutFile sv_packet_loss_real.cap
+Invoke-WebRequest "https://wiki.wireshark.org/uploads/__moin_import__/attachments/SampleCaptures/mms.pcap.gz" -OutFile mms_wiki.pcap.gz
+# gunzip mms_wiki.pcap.gz -> mms_wiki_real.pcap (any gzip tool)
+```
+
 ## 3. How to invoke
 
 **Via MCP (the real deal):** point your MCP client at this checkout, e.g. in
@@ -104,8 +121,19 @@ print(r[0].text)
 | M1 | `mms_read_real.pcap` `mms` | `[OK]` tcp.stream 0 · `requests: 1 | responses: 2 | errors: 0 | max resp ms: 25` (the capture contains a duplicated response frame; both are counted) |
 | M2 | `mms_and_goose_real.pcap` `mms` | `[FAIL]` tcp.stream 14 · `error PDU @frame 126: invokeID 303731 (errorClass=7)` |
 | M3 | `mms_getnamelist_real.pcap` `mms` | `[OK]` tcp.stream 0 · `requests: 1 | responses: 2 | errors: 0 | max resp ms: 13`. Regression test for review finding #2 — the GetNameList response dissects with `mms.confirmedServiceResponse` empty and is now classified via `mms.confirmed_ResponsePDU_element` |
+| M6 | `mms_wiki_real.pcap` `mms` (Wireshark wiki sample) | `[OK]` tcp.stream 0 · `requests: 23 | responses: 23 | errors: 0 | max resp ms: 147` |
 | M4 | `mms_and_goose_real.pcap` `goose` | 3 gocbRef streams; `[WARN]` storm on `…Q01…gcb_A` (real state-change burst in this capture), two single-packet `[OK]` streams |
 | M5 | `goose_real.pcap` `goose` | 3 streams, all `[WARN]` storm (capture genuinely contains chatter bursts); demonstrates behavior on 451-packet real traffic |
+
+## 6b. Test matrix — SV ground truth (real, labeled; all verified)
+
+The dataset's own labels vs the tool's verdicts — the strongest external validation:
+
+| ID | Capture (dataset label) | Expected (verified) |
+|----|--------------------------|---------------------|
+| S7 | `sv_normal_real.cap` ("Normal Traffic", 10,161 frames) | `[OK]` svID 4001 · `smpCnt max: 4799 | smpSynch: 2 (global)` — no false positives, 0.3 s scan |
+| S8 | `sv_loss_sync_real.cap` ("loss_Sync", 58,037 frames) | `[FAIL]` · `loss of sync @frame 25819: smpSynch 2->0` — the labeled fault, found in 0.9 s |
+| S9 | `sv_packet_loss_real.cap` ("packet_Loss", 38,551 frames) | `[FAIL]` · `smpCnt discontinuity @frame 18734: 564->703 (~138 dropped)` — the labeled fault, found in 0.6 s |
 
 ## 7. Edge / negative cases (all verified)
 
@@ -127,8 +155,9 @@ and manufactures false gap/TTL anomalies.
 
 - **Truncation caps at MCP level**: a capture with >20 streams / >10 anomalies per
   stream (unit-tested in `test_iec61850.py`, not yet exercised end-to-end).
-- **Soak/perf**: a full-rate SV capture (4000 pkt/s × 60 s ≈ 240k frames) to observe
-  scan time vs the 120 s timeout and memory footprint (rows are fully materialized).
+- **Soak/perf at larger scale**: S8 already covers 58k frames in 0.9 s; a 240k+ frame
+  capture would further probe the 120 s timeout and memory footprint (rows are fully
+  materialized).
 - **MMS deep coverage**: run the remaining `MMS - Specific Commands/*.pcap` service
   types (cancel, kill, takeControl…) — cheap to add with the download block above.
 - **stNum 32-bit rollover** GOOSE case (rollover is exempted in code, not exercised).
