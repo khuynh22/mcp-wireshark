@@ -53,6 +53,8 @@ FIELD_SETS: dict[str, list[str]] = {
         "ip.dst",
         "mms.invokeID",
         "mms.originalInvokeID",
+        "mms.confirmed_RequestPDU_element",
+        "mms.confirmed_ResponsePDU_element",
         "mms.confirmedServiceRequest",
         "mms.confirmedServiceResponse",
         "mms.errorClass",
@@ -134,6 +136,29 @@ def _verdict(anomalies: list[Anomaly]) -> str:
     if any(a.severity == "WARN" for a in anomalies):
         return "WARN"
     return "OK"
+
+
+def _expand_multi_occurrence(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Expand comma-joined multi-occurrence field values into one row per occurrence.
+
+    ``tshark -T fields`` joins repeated occurrences of a field within one frame
+    with commas (its default aggregator) — e.g. a two-ASDU SV frame yields
+    ``sv.smpCnt = "0,1"`` and ``sv.svID = "MU01,MU01"``. Per-frame fields such as
+    ``frame.number`` occur once and are replicated across the expanded rows, as
+    is any value whose occurrence count disagrees with the row's maximum.
+    """
+    out: list[dict[str, str]] = []
+    for row in rows:
+        parts = {key: value.split(",") for key, value in row.items()}
+        occurrences = max(len(p) for p in parts.values()) if parts else 1
+        if occurrences == 1:
+            out.append(row)
+            continue
+        for i in range(occurrences):
+            out.append(
+                {key: (p[i] if len(p) == occurrences else row[key]) for key, p in parts.items()}
+            )
+    return out
 
 
 def _group_by(rows: list[dict[str, str]], key: str) -> dict[str, list[dict[str, str]]]:
@@ -242,7 +267,13 @@ _SMPSYNCH = {0: "none", 1: "local", 2: "global"}
 
 
 def analyze_sv(rows: list[dict[str, str]]) -> ProtocolReport:
-    """Detect Sampled Values continuity / sync anomalies, grouped by svID."""
+    """Detect Sampled Values continuity / sync anomalies, grouped by svID.
+
+    Frames carrying multiple ASDUs are expanded to one row per ASDU first;
+    ``packets_scanned`` still reports the frame count.
+    """
+    frames_scanned = len(rows)
+    rows = _expand_multi_occurrence(rows)
     groups = _group_by(rows, "sv.svID")
     streams: list[StreamReport] = []
 
@@ -297,19 +328,29 @@ def analyze_sv(rows: list[dict[str, str]]) -> ProtocolReport:
             "smpCnt max": str(max(counts) if counts else 0),
             "smpSynch": f"{last_synch} ({_SMPSYNCH.get(last_synch, '?')})",
             "confRev": group[0].get("sv.confRev", ""),
-            "pkts": str(len(group)),
+            "ASDUs": str(len(group)),
         }
         label = f"dst {group[0].get('eth.dst', '')}"
         streams.append(StreamReport(svid, label, _verdict(anomalies), metrics, anomalies))
 
-    return ProtocolReport(len(streams), len(rows), streams)
+    return ProtocolReport(len(streams), frames_scanned, streams)
 
 
 def _mms_kind(row: dict[str, str]) -> str:
-    """Classify an MMS PDU by which marker column is populated."""
-    if row.get("mms.confirmedServiceRequest", ""):
+    """Classify an MMS PDU by which marker column is populated.
+
+    The PDU element markers (FT_NONE presence fields) are checked first: tshark
+    can dissect a valid confirmed-ResponsePDU with ``mms.confirmedServiceResponse``
+    left empty (seen on GetNameList responses in 4.6.5), so the service fields
+    alone under-count responses.
+    """
+    if row.get("mms.confirmed_RequestPDU_element", "") or row.get(
+        "mms.confirmedServiceRequest", ""
+    ):
         return "req"
-    if row.get("mms.confirmedServiceResponse", ""):
+    if row.get("mms.confirmed_ResponsePDU_element", "") or row.get(
+        "mms.confirmedServiceResponse", ""
+    ):
         return "resp"
     if row.get("mms.errorClass", ""):
         return "error"

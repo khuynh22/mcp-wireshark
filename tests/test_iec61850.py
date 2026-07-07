@@ -172,6 +172,53 @@ def test_sv_confrev_change_is_warn() -> None:
     assert any("confRev" in a.message for a in s.anomalies)
 
 
+def test_sv_multi_asdu_frame_expanded_per_asdu() -> None:
+    # tshark -T fields joins multi-occurrence values with commas: a healthy
+    # 2-ASDU frame yields sv.smpCnt "0,1". Must expand to one row per ASDU,
+    # not parse as garbage.
+    rows = [
+        {
+            "frame.number": str(frame),
+            "frame.time_epoch": str(frame * 0.0005),
+            "eth.dst": "01:0c:cd:04:00:01",
+            "sv.svID": "MU01,MU01",
+            "sv.smpCnt": f"{2 * i},{2 * i + 1}",
+            "sv.smpSynch": "2,2",
+            "sv.confRev": "1,1",
+            "sv.smpRate": "4000,4000",
+        }
+        for i, frame in enumerate(range(1, 5))
+    ]
+    rep = analyze_sv(rows)
+    assert rep.streams_analyzed == 1
+    s = rep.streams[0]
+    assert s.stream_id == "MU01"
+    assert s.verdict == "OK"
+    assert s.metrics["smpCnt max"] == "7"
+    assert s.metrics["ASDUs"] == "8"  # 4 frames x 2 ASDUs
+    assert rep.packets_scanned == 4  # frames, not ASDUs
+
+
+def test_sv_multi_asdu_dropout_detected() -> None:
+    # smpCnt pairs (0,1) then (6,7): samples 2-5 lost inside a multi-ASDU stream.
+    def frame(n: int, c0: int) -> dict[str, str]:
+        return {
+            "frame.number": str(n),
+            "frame.time_epoch": str(n * 0.0005),
+            "eth.dst": "01:0c:cd:04:00:01",
+            "sv.svID": "MU01,MU01",
+            "sv.smpCnt": f"{c0},{c0 + 1}",
+            "sv.smpSynch": "2,2",
+            "sv.confRev": "1,1",
+            "sv.smpRate": "4000,4000",
+        }
+
+    rep = analyze_sv([frame(1, 0), frame(2, 6)])
+    s = rep.streams[0]
+    assert s.verdict == "FAIL"
+    assert any("discontinuity" in a.message for a in s.anomalies)
+
+
 # --------------------------------------------------------------------------- #
 # Task 4 — MMS analyzer
 # --------------------------------------------------------------------------- #
@@ -184,14 +231,18 @@ def _mms(frame, t, invoke="", kind="", stream="0", src="10.0.0.5", dst="10.0.0.9
         "ip.dst": dst,
         "mms.invokeID": invoke,
         "mms.originalInvokeID": "",
+        "mms.confirmed_RequestPDU_element": "",
+        "mms.confirmed_ResponsePDU_element": "",
         "mms.confirmedServiceRequest": "",
         "mms.confirmedServiceResponse": "",
         "mms.errorClass": "",
         "mms.rejectReason": "",
     }
     if kind == "req":
+        row["mms.confirmed_RequestPDU_element"] = "1"
         row["mms.confirmedServiceRequest"] = "5"
     elif kind == "resp":
+        row["mms.confirmed_ResponsePDU_element"] = "1"
         row["mms.confirmedServiceResponse"] = "5"
     elif kind == "error":
         row["mms.errorClass"] = "3"
@@ -236,6 +287,25 @@ def test_mms_slow_response_is_warn() -> None:
     s = rep.streams[0]
     assert s.verdict == "WARN"
     assert any("slow response" in a.message for a in s.anomalies)
+
+
+def test_mms_field_set_includes_pdu_element_markers() -> None:
+    assert "mms.confirmed_RequestPDU_element" in FIELD_SETS["mms"]
+    assert "mms.confirmed_ResponsePDU_element" in FIELD_SETS["mms"]
+
+
+def test_mms_response_with_empty_service_field_still_pairs() -> None:
+    # Real captures (tshark 4.6.5, GetNameList response): confirmed-ResponsePDU
+    # dissects with mms.confirmedServiceResponse EMPTY; only the PDU element
+    # marker is populated. Must classify as a response, not "other".
+    req = _mms(1, 0.0, invoke="0", kind="req")
+    resp = _mms(2, 0.013, invoke="0")
+    resp["mms.confirmed_ResponsePDU_element"] = "1"
+    rep = analyze_mms([req, resp])
+    s = rep.streams[0]
+    assert s.verdict == "OK"
+    assert s.metrics["responses"] == "1"
+    assert not any("unpaired" in a.message for a in s.anomalies)
 
 
 # --------------------------------------------------------------------------- #

@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `analyze_iec61850` — read-only health analyzer for IEC 61850 captures. Per-source `OK`/`WARN`/`FAIL` triage: GOOSE (`sqNum`/`stNum` gaps, `timeAllowedtoLive` violations, state-change storms, `ndsCom`/simulation flags), SV (`smpCnt` discontinuity, loss of time sync, `confRev` changes), and MMS (error/reject PDUs, unpaired requests, slow responses). Scans the full capture via `tshark -T fields` but returns a bounded report, so it is safe on high-rate SV streams. Field names verified against tshark 4.6.5.
+- `analyze_iec61850` — read-only health analyzer for IEC 61850 captures. Per-source `OK`/`WARN`/`FAIL` triage: GOOSE (`sqNum`/`stNum` gaps, `timeAllowedtoLive` violations, state-change storms, `ndsCom`/simulation flags), SV (`smpCnt` discontinuity, loss of time sync, `confRev` changes), and MMS (error/reject PDUs, unpaired requests, slow responses). Scans the full capture via `tshark -T fields` but returns a bounded report, so it is safe on high-rate SV streams. Handles multi-ASDU SV frames (one row per ASDU). Field names verified against tshark 4.6.5.
 
 ## [0.3.1] - 2026-05-09
 
