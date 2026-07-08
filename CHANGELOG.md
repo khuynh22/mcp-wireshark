@@ -7,9 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-07
+
 ### Added
 
 - `analyze_iec61850` — read-only health analyzer for IEC 61850 captures. Per-source `OK`/`WARN`/`FAIL` triage: GOOSE (`sqNum`/`stNum` gaps, `timeAllowedtoLive` violations, state-change storms, `ndsCom`/simulation flags), SV (`smpCnt` discontinuity, loss of time sync, `confRev` changes), and MMS (error/reject PDUs, unpaired requests, slow responses). Scans the full capture via `tshark -T fields` but returns a bounded report, so it is safe on high-rate SV streams. Handles multi-ASDU SV frames (one row per ASDU). Field names verified against tshark 4.6.5.
+
+### Fixed
+
+- `mcp.json`, `mcp-server.json`, and `server.json` tool lists and versions were stale (missing up to 7 tools); all three now list the full tool set and are version-bumped by the release workflow.
+- GitHub release notes previously rendered an empty PR reference; the release workflow now uses the PR metadata resolved in its label-check job.
+
+## [0.4.0] - 2026-05-26
+
+### Added
+
+- `expert_info` — tshark expert analysis: warnings, errors, and notes grouped by severity.
+- `decode_protocol` — extract protocol fields as a TSV table, with curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, and ICMP, or arbitrary fields for any other protocol.
+- `protocol_stats` — aggregate `-z` reports: protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB statistics.
+
+_(Backfilled: this release shipped on 2026-05-26 without a changelog entry.)_
 
 ## [0.3.1] - 2026-05-09
 
