@@ -77,6 +77,18 @@
       "description": "Follow a UDP stream and extract payload data"
     },
     {
+      "name": "expert_info",
+      "description": "tshark expert analysis: warnings, errors, and notes grouped by severity"
+    },
+    {
+      "name": "decode_protocol",
+      "description": "Extract protocol fields as a TSV table with curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, ICMP"
+    },
+    {
+      "name": "protocol_stats",
+      "description": "Aggregate tshark -z reports: protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB stats"
+    },
+    {
       "name": "analyze_iec61850",
       "description": "Analyze GOOSE/SV/MMS captures for health anomalies; returns a worst-first OK/WARN/FAIL report per source"
     },
