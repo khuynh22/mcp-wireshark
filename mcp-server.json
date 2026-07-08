@@ -2,14 +2,14 @@
   "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/schemas/mcp-server.schema.json",
   "name": "mcp-wireshark",
   "mcpName": "io.github.khuynh22/wireshark",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "[Unofficial/Community] MCP server for Wireshark/tshark integration - capture live network traffic, parse pcap files, apply display filters, and analyze network protocols with AI assistance",
   "author": "Khang Nguyen Huynh",
   "license": "MIT",
   "repository": "https://github.com/khuynh22/mcp-wireshark",
   "homepage": "https://github.com/khuynh22/mcp-wireshark",
   "categories": ["networking", "security", "analysis", "developer-tools"],
-  "tags": ["wireshark", "tshark", "pcap", "network", "packet-capture", "protocol-analysis"],
+  "tags": ["wireshark", "tshark", "pcap", "network", "packet-capture", "protocol-analysis", "iec-61850", "goose", "sampled-values", "mms"],
   "runtime": "python",
   "minPythonVersion": "3.10",
   "installation": {
@@ -40,12 +40,12 @@
   ],
   "tools": [
     {
-      "name": "list_interfaces",
-      "description": "List all available network interfaces for packet capture"
+      "name": "check_installation",
+      "description": "Check if Wireshark/tshark is installed and return version info"
     },
     {
-      "name": "live_capture",
-      "description": "Capture live network traffic from a specified interface"
+      "name": "list_interfaces",
+      "description": "List all available network interfaces for packet capture"
     },
     {
       "name": "read_pcap",
@@ -56,12 +56,40 @@
       "description": "Apply Wireshark display filters to packet data"
     },
     {
+      "name": "summarize_pcap",
+      "description": "Get a high-level summary of a pcap file: packet count, duration, top protocols, top talkers"
+    },
+    {
       "name": "stats_by_proto",
       "description": "Generate protocol statistics from capture files"
     },
     {
       "name": "follow_tcp",
       "description": "Follow TCP streams and extract payload data"
+    },
+    {
+      "name": "follow_udp",
+      "description": "Follow UDP streams and extract payload data"
+    },
+    {
+      "name": "expert_info",
+      "description": "tshark expert analysis: warnings, errors, and notes grouped by severity"
+    },
+    {
+      "name": "decode_protocol",
+      "description": "Extract protocol fields as a TSV table with curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, ICMP"
+    },
+    {
+      "name": "protocol_stats",
+      "description": "Aggregate tshark -z reports: protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB stats"
+    },
+    {
+      "name": "analyze_iec61850",
+      "description": "Analyze GOOSE/SV/MMS captures for health anomalies; returns a worst-first OK/WARN/FAIL report per source"
+    },
+    {
+      "name": "live_capture",
+      "description": "Capture live network traffic from a specified interface"
     },
     {
       "name": "export_json",
@@ -80,6 +108,10 @@
     {
       "prompt": "Analyze the pcap file and show DNS queries",
       "tool": "read_pcap"
+    },
+    {
+      "prompt": "Check substation.pcap for GOOSE health problems",
+      "tool": "analyze_iec61850"
     }
   ]
 }

@@ -12,7 +12,7 @@
             "WebSearch",
             "TodoRead",
             "TodoWrite",
-            "mcp__*"
+            "mcp__mcp-wireshark__*"
         ]
     }
 }

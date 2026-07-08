@@ -41,7 +41,7 @@ If `tshark` is on your `PATH`, it returns the version. If not, see [troubleshoot
 
 ## Tools
 
-The server exposes 13 tools, split cleanly between **read tools** (safe, no side effects) and **write tools** (capture traffic or write files). Both groups are annotated with the standard MCP `readOnlyHint` so any compliant client can surface the distinction.
+The server exposes 14 tools, split cleanly between **read tools** (safe, no side effects) and **write tools** (capture traffic or write files). Both groups are annotated with the standard MCP `readOnlyHint` so any compliant client can surface the distinction.
 
 ### Read tools
 
@@ -60,6 +60,7 @@ Safe to call freely — they only inspect state.
 | `expert_info`        | tshark expert analysis: warnings, errors, and notes grouped by severity                       |
 | `decode_protocol`    | Extract protocol fields as a TSV table. Curated defaults for HTTP, DNS, TLS, GOOSE, MMS, SV, SIP, ICMP; arbitrary fields for any other protocol |
 | `protocol_stats`     | Aggregate `-z` reports (protocol hierarchy, conversations, endpoints, HTTP/DNS/SMB stats)     |
+| `analyze_iec61850`   | Health triage for GOOSE/SV/MMS captures: per-source OK/WARN/FAIL with sqNum/stNum gaps, TTL violations, smpCnt discontinuities, lost sync, and MMS errors |
 
 ### Write tools
 

@@ -47,8 +47,11 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
-# Capture files
+# Capture files (incl. testdata/ — regenerate via scripts/make_iec61850_test_pcaps.py
+# or download per docs/testing/analyze_iec61850-functional-test-plan.md)
 *.pcap
+*.cap
+testdata/
 *.pcapng
 
 # Temporary files

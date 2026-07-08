@@ -132,13 +132,16 @@ jobs:
           # Update mcp.json
           sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" mcp.json
 
-          echo "Updated version to $NEW_VERSION in pyproject.toml, __init__.py, and mcp.json"
+          # Update MCP registry manifests (top-level and packages[] versions)
+          sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/" server.json mcp-server.json
+
+          echo "Updated version to $NEW_VERSION in pyproject.toml, __init__.py, mcp.json, server.json, and mcp-server.json"
 
       - name: Commit version bump
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add pyproject.toml src/mcp_wireshark/__init__.py mcp.json
+          git add pyproject.toml src/mcp_wireshark/__init__.py mcp.json server.json mcp-server.json
           git commit -m "chore: bump version to ${{ steps.new-version.outputs.version }}"
           git push
 
@@ -168,7 +171,7 @@ jobs:
           body: |
             ## What's Changed
 
-            PR: #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}
+            PR: #${{ needs.check-merge.outputs.pr_number }} - ${{ needs.check-merge.outputs.pr_title }}
 
             **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.current-version.outputs.version }}...v${{ steps.new-version.outputs.version }}
 
@@ -189,7 +192,7 @@ jobs:
     steps:
       - name: Log info
         run: |
-          echo "PR #${{ github.event.pull_request.number }} merged without release label."
+          echo "PR #${{ needs.check-merge.outputs.pr_number }} merged without release label."
           echo "To trigger a release, add one of these labels before merging:"
           echo "  - release:patch (0.0.x)"
           echo "  - release:minor (0.x.0)"
