@@ -1,6 +1,40 @@
 """Tests for utility functions."""
 
-from mcp_wireshark.utils import check_wireshark_installed, parse_packet_json
+import subprocess
+import sys
+from unittest.mock import patch
+
+import pytest
+
+from mcp_wireshark.utils import check_wireshark_installed, parse_packet_json, stream_tshark
+
+
+async def test_stream_tshark_drains_stderr_while_reading_stdout() -> None:
+    script = "import sys; sys.stderr.write('a' * 300000); print('packets')"
+    chunks: list[bytes] = []
+    with patch("mcp_wireshark.utils.shutil.which", return_value=sys.executable):
+        await stream_tshark(["-c", script], chunks.append, timeout=5)
+    assert b"".join(chunks).strip() == b"packets"
+
+
+async def test_stream_tshark_times_out_waiting_for_output() -> None:
+    with (
+        patch("mcp_wireshark.utils.shutil.which", return_value=sys.executable),
+        pytest.raises(subprocess.TimeoutExpired),
+    ):
+        await stream_tshark(["-c", "import time; time.sleep(30)"], lambda _: None, timeout=1)
+
+
+async def test_stream_tshark_stops_process_on_parser_failure() -> None:
+    def reject_output(_: bytes) -> None:
+        raise ValueError("parser rejected output")
+
+    script = "import time; print('bad packet', flush=True); time.sleep(30)"
+    with (
+        patch("mcp_wireshark.utils.shutil.which", return_value=sys.executable),
+        pytest.raises(ValueError, match="parser rejected output"),
+    ):
+        await stream_tshark(["-c", script], reject_output, timeout=5)
 
 
 def test_check_wireshark_installed() -> None:

@@ -11,24 +11,10 @@ from typing import Any
 
 from mcp.types import TextContent, Tool, ToolAnnotations
 
-from .iec61850 import (
-    BASE_FILTERS,
-    FIELD_SETS,
-    analyze_goose,
-    analyze_mms,
-    analyze_sv,
-    format_report,
-    parse_field_rows,
-)
-from .utils import run_tshark
+from .iec61850 import BASE_FILTERS, format_report
+from .iec61850_capture import FieldCapture, MMSCapture
+from .utils import run_tshark, stream_tshark
 from .validation import MAX_PACKET_COUNT, validate_display_filter, validate_file_path
-
-# Dispatch table mapping a protocol token to its analyzer (see iec61850.py).
-_IEC_ANALYZERS = {
-    "goose": analyze_goose,
-    "sv": analyze_sv,
-    "mms": analyze_mms,
-}
 
 
 def _read_only(title: str) -> ToolAnnotations:
@@ -457,8 +443,7 @@ READ_TOOLS: list[Tool] = [
             "one of 'goose' (stNum/sqNum gaps, timeAllowedtoLive violations, "
             "state-change storms), 'sv' (smpCnt continuity, loss of time sync, "
             "confRev changes), or 'mms' (error/reject PDUs, unpaired requests, "
-            "slow responses). Scans the whole capture but returns only a bounded "
-            "summary, so it is safe on high-rate SV streams."
+            "slow responses). Streams matching frames and returns a bounded summary."
         ),
         annotations=_read_only("Analyze IEC 61850 health"),
         inputSchema={
@@ -478,7 +463,9 @@ READ_TOOLS: list[Tool] = [
                     "description": (
                         "Optional display filter ANDed with the protocol filter "
                         "to scope to one gocbRef/svID/host (e.g. "
-                        'goose.gocbRef contains "gcb01")'
+                        'goose.gocbRef contains "gcb01"). Filters on sequence numbers, '
+                        "timestamps, or PDU types can hide packets needed to detect gaps, "
+                        "TTL violations, and request/response pairs accurately."
                     ),
                 },
             },
@@ -971,15 +958,11 @@ async def handle_analyze_iec61850(arguments: dict[str, Any]) -> list[TextContent
         else:
             combined_filter = base_filter
 
-        columns = FIELD_SETS[protocol]
-        args = ["-r", file_path, "-Y", combined_filter, "-T", "fields"]
-        for column in columns:
-            args.extend(["-e", column])
-        args.extend(["-E", "header=y", "-E", "separator=\t", "-E", "quote=n"])
-
-        output = await run_tshark(args, timeout=120)
-        rows = parse_field_rows(output, columns)
-        if not rows:
+        capture = MMSCapture() if protocol == "mms" else FieldCapture(protocol)
+        args = ["-n", "-r", file_path, "-Y", combined_filter, *capture.args]
+        await stream_tshark(args, capture.feed, timeout=120)
+        report = capture.finish()
+        if not report.packets_scanned:
             return [
                 TextContent(
                     type="text",
@@ -988,7 +971,6 @@ async def handle_analyze_iec61850(arguments: dict[str, Any]) -> list[TextContent
                 )
             ]
 
-        report = _IEC_ANALYZERS[protocol](rows)
         return [TextContent(type="text", text=format_report(protocol, file_path, report))]
 
     except Exception as e:

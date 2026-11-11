@@ -295,13 +295,12 @@ async def test_analyze_iec61850_builds_field_args_and_formats(tmp_path: Path) ->
         "2\t0.5\t01:0c:cd:01:00:01\tIED1/LLN0$GO$g\t1\t51\t2000\t0\t0\n"
     )
 
-    async def fake_run_tshark(
-        args: list[str], timeout: int = 30, input_data: str | None = None  # noqa: ARG001
-    ) -> str:
+    async def fake_stream_tshark(args, consume, timeout):  # noqa: ARG001
         captured["args"] = args
-        return tsv
+        consume(tsv[:128].encode())
+        consume(tsv[128:].rstrip("\n").encode())
 
-    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_run_tshark)):
+    with patch("mcp_wireshark.read_tools.stream_tshark", side_effect=fake_stream_tshark):
         result = await handle_analyze_iec61850(
             {"file_path": str(pcap), "protocol": "goose", "filter": "goose.stNum > 0"}
         )
@@ -322,11 +321,6 @@ async def test_analyze_iec61850_no_packets(tmp_path: Path) -> None:
     pcap = tmp_path / "t.pcap"
     pcap.touch()
 
-    async def fake_run_tshark(
-        args: list[str], timeout: int = 30, input_data: str | None = None  # noqa: ARG001
-    ) -> str:
-        return ""  # tshark found nothing
-
-    with patch("mcp_wireshark.read_tools.run_tshark", AsyncMock(side_effect=fake_run_tshark)):
+    with patch("mcp_wireshark.read_tools.stream_tshark", new_callable=AsyncMock):
         result = await handle_analyze_iec61850({"file_path": str(pcap), "protocol": "sv"})
     assert "No SV packets" in result[0].text or "no sv packets" in result[0].text.lower()
