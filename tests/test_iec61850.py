@@ -11,46 +11,24 @@ from mcp_wireshark.iec61850 import (
     analyze_mms,
     analyze_sv,
     format_report,
-    parse_field_rows,
 )
 
 
 # --------------------------------------------------------------------------- #
 # Task 1 — scaffolding + TSV parser
 # --------------------------------------------------------------------------- #
-def test_field_sets_cover_three_protocols() -> None:
-    assert set(FIELD_SETS) == {"goose", "sv", "mms"}
+def test_field_sets_cover_goose_and_sv() -> None:
+    assert set(FIELD_SETS) == {"goose", "sv"}
     assert set(BASE_FILTERS) == {"goose", "sv", "mms"}
     assert "goose.stNum" in FIELD_SETS["goose"]
     assert "goose.sqNum" in FIELD_SETS["goose"]
     assert "goose.timeAllowedtoLive" in FIELD_SETS["goose"]
 
 
-def test_parse_field_rows_skips_header_and_keys_by_columns() -> None:
-    cols = ["frame.number", "goose.stNum", "goose.sqNum"]
-    tsv = "frame.number\tgoose.stNum\tgoose.sqNum\n1\t5\t0\n2\t5\t1\n"
-    rows = parse_field_rows(tsv, cols)
-    assert rows == [
-        {"frame.number": "1", "goose.stNum": "5", "goose.sqNum": "0"},
-        {"frame.number": "2", "goose.stNum": "5", "goose.sqNum": "1"},
-    ]
-
-
-def test_parse_field_rows_pads_short_rows_and_ignores_blank_lines() -> None:
-    cols = ["a", "b", "c"]
-    tsv = "a\tb\tc\nx\ty\n\n"  # second row missing 'c', trailing blank
-    rows = parse_field_rows(tsv, cols)
-    assert rows == [{"a": "x", "b": "y", "c": ""}]
-
-
-def test_parse_field_rows_empty_input() -> None:
-    assert parse_field_rows("", ["a"]) == []
-
-
 # --------------------------------------------------------------------------- #
 # Task 2 — GOOSE analyzer
 # --------------------------------------------------------------------------- #
-def _goose(frame, t, st, sq, tal="2000", nds="0", sim="0", gocb="IED1/LLN0$GO$g"):
+def _goose(frame, t, st, sq, *, tal="2000", nds="0", sim="0", gocb="IED1/LLN0$GO$g"):
     return {
         "frame.number": str(frame),
         "frame.time_epoch": str(t),
@@ -117,7 +95,7 @@ def test_goose_ndscom_is_warn() -> None:
 # --------------------------------------------------------------------------- #
 # Task 3 — SV analyzer
 # --------------------------------------------------------------------------- #
-def _sv(frame, cnt, synch="2", confrev="1", svid="SV01", smprate="4000"):
+def _sv(frame, cnt, *, synch="2", confrev="1", svid="SV01", smprate="4000"):
     return {
         "frame.number": str(frame),
         "frame.time_epoch": str(frame * 0.00025),
@@ -140,6 +118,45 @@ def test_sv_rollover_not_flagged() -> None:
     rows = [_sv(1, 3998), _sv(2, 3999), _sv(3, 0), _sv(4, 1)]
     rep = analyze_sv(rows)
     assert rep.streams[0].verdict == "OK"
+
+
+def test_sv_missing_sample_at_rollover_uses_sample_rate() -> None:
+    rows = [_sv(1, 3997), _sv(2, 3998), _sv(3, 0), _sv(4, 1)]
+    report = analyze_sv(rows).streams[0]
+    assert report.verdict == "FAIL"
+    assert "3998->0 (~1 dropped)" in report.anomalies[0].message
+
+
+def test_sv_corrupt_counter_does_not_change_rollover_modulus() -> None:
+    rows = [_sv(1, 50000), _sv(2, 3998), _sv(3, 0)]
+    report = analyze_sv(rows).streams[0]
+    assert "out of range" in report.anomalies[0].message
+    assert "3998->0 (~1 dropped)" in report.anomalies[1].message
+
+
+def test_sv_rate_in_samples_per_second_sets_rollover() -> None:
+    rows = [
+        dict(_sv(i, count, smprate="14400"), **{"sv.smpMod": "1"})
+        for i, count in enumerate((14398, 0), 1)
+    ]
+    report = analyze_sv(rows).streams[0]
+    assert "14398->0 (~1 dropped)" in report.anomalies[0].message
+
+
+def test_sv_rate_in_samples_per_period_is_not_a_counter_limit() -> None:
+    rows = [
+        dict(_sv(i, count, smprate="80"), **{"sv.smpMod": "0"})
+        for i, count in enumerate((4798, 4799, 0), 1)
+    ]
+    assert analyze_sv(rows).streams[0].verdict == "OK"
+
+
+def test_sv_counts_omitted_anomalies_without_retaining_them() -> None:
+    rows = (_sv(i, i * 2) for i in range(1, 102))
+    report = analyze_sv(rows)
+    assert report.packets_scanned == 101
+    assert len(report.streams[0].anomalies) == 10
+    assert "90 more anomalies" in format_report("sv", "test.pcap", report)
 
 
 def test_sv_smpcnt_discontinuity_is_fail() -> None:
@@ -222,7 +239,9 @@ def test_sv_multi_asdu_dropout_detected() -> None:
 # --------------------------------------------------------------------------- #
 # Task 4 — MMS analyzer
 # --------------------------------------------------------------------------- #
-def _mms(frame, t, invoke="", kind="", stream="0", src="10.0.0.5", dst="10.0.0.9"):
+def _mms(frame, t, *, invoke="", kind="", stream="0", src="10.0.0.5", dst="10.0.0.9"):
+    if kind in {"resp", "error", "reject"}:
+        src, dst = dst, src
     row = {
         "frame.number": str(frame),
         "frame.time_epoch": str(t),
@@ -231,23 +250,15 @@ def _mms(frame, t, invoke="", kind="", stream="0", src="10.0.0.5", dst="10.0.0.9
         "ip.dst": dst,
         "mms.invokeID": invoke,
         "mms.originalInvokeID": "",
-        "mms.confirmed_RequestPDU_element": "",
-        "mms.confirmed_ResponsePDU_element": "",
-        "mms.confirmedServiceRequest": "",
-        "mms.confirmedServiceResponse": "",
+        "mms.kind": kind,
         "mms.errorClass": "",
         "mms.rejectReason": "",
     }
-    if kind == "req":
-        row["mms.confirmed_RequestPDU_element"] = "1"
-        row["mms.confirmedServiceRequest"] = "5"
-    elif kind == "resp":
-        row["mms.confirmed_ResponsePDU_element"] = "1"
-        row["mms.confirmedServiceResponse"] = "5"
-    elif kind == "error":
+    if kind == "error":
         row["mms.errorClass"] = "3"
         row["mms.originalInvokeID"] = invoke
     elif kind == "reject":
+        row["mms.invokeID"] = ""
         row["mms.rejectReason"] = "1"
         row["mms.originalInvokeID"] = invoke
     return row
@@ -270,7 +281,31 @@ def test_mms_error_pdu_is_fail() -> None:
 def test_mms_reject_is_fail() -> None:
     rows = [_mms(1, 0.0, invoke="3", kind="req"), _mms(2, 0.01, invoke="3", kind="reject")]
     rep = analyze_mms(rows)
-    assert rep.streams[0].verdict == "FAIL"
+    report = rep.streams[0]
+    assert report.verdict == "FAIL"
+    assert len(report.anomalies) == 1
+    assert "invokeID 3" in report.anomalies[0].message
+
+
+def test_mms_zero_invoke_id_takes_precedence_over_original_id() -> None:
+    error = _mms(2, 0.05, invoke="0", kind="error")
+    error["mms.originalInvokeID"] = "7"
+    rows = [_mms(1, 0.0, invoke="0", kind="req"), error]
+    report = analyze_mms(rows).streams[0]
+    assert len(report.anomalies) == 1
+    assert "invokeID 0" in report.anomalies[0].message
+
+
+def test_mms_missing_id_does_not_pair_with_zero() -> None:
+    rows = [
+        _mms(1, 0.0, kind="req"),
+        _mms(2, 1.0, invoke="0", kind="req"),
+        _mms(3, 1.05, invoke="0", kind="resp"),
+    ]
+    report = analyze_mms(rows).streams[0]
+    assert report.metrics["max resp ms"] == "50"
+    assert len(report.anomalies) == 1
+    assert "missing invokeID" in report.anomalies[0].message
 
 
 def test_mms_unpaired_request_is_warn() -> None:
@@ -289,23 +324,15 @@ def test_mms_slow_response_is_warn() -> None:
     assert any("slow response" in a.message for a in s.anomalies)
 
 
-def test_mms_field_set_includes_pdu_element_markers() -> None:
-    assert "mms.confirmed_RequestPDU_element" in FIELD_SETS["mms"]
-    assert "mms.confirmed_ResponsePDU_element" in FIELD_SETS["mms"]
-
-
-def test_mms_response_with_empty_service_field_still_pairs() -> None:
-    # Real captures (tshark 4.6.5, GetNameList response): confirmed-ResponsePDU
-    # dissects with mms.confirmedServiceResponse EMPTY; only the PDU element
-    # marker is populated. Must classify as a response, not "other".
-    req = _mms(1, 0.0, invoke="0", kind="req")
-    resp = _mms(2, 0.013, invoke="0")
-    resp["mms.confirmed_ResponsePDU_element"] = "1"
-    rep = analyze_mms([req, resp])
-    s = rep.streams[0]
-    assert s.verdict == "OK"
-    assert s.metrics["responses"] == "1"
-    assert not any("unpaired" in a.message for a in s.anomalies)
+def test_mms_pairs_same_id_independently_in_each_direction() -> None:
+    request = _mms(1, 0.0, invoke="0", kind="req")
+    reverse_request = _mms(
+        2, 1.0, invoke="0", kind="req", src=request["ip.dst"], dst=request["ip.src"]
+    )
+    response = _mms(3, 1.05, invoke="0", kind="resp", src=request["ip.dst"], dst=request["ip.src"])
+    report = analyze_mms([request, reverse_request, response]).streams[0]
+    assert report.metrics["max resp ms"] == "50"
+    assert [anomaly.frame for anomaly in report.anomalies] == [1]
 
 
 # --------------------------------------------------------------------------- #

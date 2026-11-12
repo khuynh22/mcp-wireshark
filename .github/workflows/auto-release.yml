@@ -31,7 +31,16 @@ jobs:
           # Commits pushed directly to main (e.g. the version-bump commit from
           # this workflow itself) have no PR — the API returns []. That short-
           # circuits the release path and prevents recursive triggers.
-          PR_JSON=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls")
+          for attempt in 1 2 3; do
+            PR_JSON=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls")
+            if jq -e 'length > 0' <<< "$PR_JSON" > /dev/null; then
+              break
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "No associated PR on attempt $attempt. Retrying in 20 seconds."
+              sleep 20
+            fi
+          done
           LABELS=$(echo "$PR_JSON" | jq -r '[.[].labels[].name] | join(",")')
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number // ""')
           PR_TITLE=$(echo "$PR_JSON" | jq -r '.[0].title // ""')

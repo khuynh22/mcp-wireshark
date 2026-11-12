@@ -107,22 +107,27 @@ Export packets to JSON format.
 #### `handle_analyze_iec61850(arguments: dict[str, Any]) -> list[TextContent]`
 
 Analyze an IEC 61850 capture for protocol health and return a compact,
-worst-first `OK`/`WARN`/`FAIL` report per source. Scans the whole capture
-via `tshark -T fields` but returns only a bounded summary, so it is safe on
-high-rate SV streams. Checks per protocol:
+worst-first `OK`/`WARN`/`FAIL` report per source. Processes matching frames
+incrementally and returns a bounded summary. Checks per protocol:
 
 - `goose`: `sqNum`/`stNum` gaps, `timeAllowedtoLive` violations, state-change
   storms, `ndsCom`/simulation flags (grouped by `gocbRef`)
 - `sv`: `smpCnt` discontinuities, loss of time sync, `confRev` changes
-  (grouped by `svID`)
+  (grouped by `svID`). Rollover estimates use `smpRate` for one-second sample
+  cycles, including 4,000/4,800 Hz legacy streams with an omitted `smpMod`.
+  With an unknown rollover point, a reset to zero is ambiguous and backward
+  gaps can be reported without a drop count.
 - `mms`: error/reject PDUs, unpaired requests, slow responses (grouped by
-  TCP stream)
+  TCP stream). The analyzer skips TCP retransmissions marked by tshark and
+  counts each decoded MMS PDU, even when multiple PDUs share one frame.
 
 **Arguments:**
 - `file_path` (str): Path to .pcap or .pcapng file
 - `protocol` (str): One of `goose`, `sv`, `mms`
 - `filter` (str, optional): Display filter ANDed with the protocol filter to
-  scope to one `gocbRef`/`svID`/host
+  scope to one `gocbRef`, `svID`, or host. Filters on sequence numbers,
+  timestamps, or PDU types can hide intermediate packets and produce false
+  gaps, TTL violations, or unpaired requests.
 
 **Returns:**
 - Worst-first per-source health report

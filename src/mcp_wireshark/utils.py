@@ -3,6 +3,8 @@
 import asyncio
 import shutil
 import subprocess
+from collections.abc import Callable
+from contextlib import suppress
 from typing import Any
 
 from .types import PacketInfo
@@ -69,6 +71,54 @@ async def run_tshark(args: list[str], timeout: int = 30, input_data: str | None 
         raise RuntimeError(f"tshark failed: {error_msg}")
 
     return stdout.decode()
+
+
+async def stream_tshark(
+    args: list[str], consume: Callable[[bytes], None], timeout: int = 30
+) -> None:
+    tshark_path = shutil.which("tshark")
+    if not tshark_path:
+        raise WiresharkNotFoundError("tshark not found. Please install Wireshark/tshark.")
+
+    cmd = [tshark_path, *args]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    assert proc.stdout is not None
+    assert proc.stderr is not None
+
+    async def read_stdout(stdout: asyncio.StreamReader) -> None:
+        while chunk := await stdout.read(65536):
+            consume(chunk)
+
+    async def read_stderr(stderr: asyncio.StreamReader) -> bytes:
+        message = bytearray()
+        while chunk := await stderr.read(65536):
+            message.extend(chunk[: 16384 - len(message)])
+        return bytes(message)
+
+    stdout_task = asyncio.create_task(read_stdout(proc.stdout))
+    stderr_task = asyncio.create_task(read_stderr(proc.stderr))
+    try:
+        _, stderr, returncode = await asyncio.wait_for(
+            asyncio.gather(stdout_task, stderr_task, proc.wait()), timeout
+        )
+    except BaseException as exc:
+        stdout_task.cancel()
+        stderr_task.cancel()
+        await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        if proc.returncode is None:
+            with suppress(ProcessLookupError):
+                proc.kill()
+        # Drain paused pipes so the killed process can finish shutting down.
+        await proc.communicate()
+        if isinstance(exc, asyncio.TimeoutError):
+            raise subprocess.TimeoutExpired(cmd, timeout) from exc
+        raise
+
+    if returncode:
+        error = stderr.decode(errors="replace").strip() or "Unknown error"
+        raise RuntimeError(f"tshark failed: {error}")
 
 
 async def run_dumpcap(args: list[str], timeout: int = 30) -> str:

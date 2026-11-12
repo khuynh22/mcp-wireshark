@@ -1,28 +1,29 @@
-"""Pure IEC 61850 health analysis — GOOSE, SV, and MMS.
-
-This module is tshark-free and imports no MCP types. It consumes rows already
-parsed from ``tshark -T fields`` output and returns plain dataclasses, so the
-detection logic can be unit-tested without any subprocess. The MCP glue lives
-in ``read_tools.py``.
-"""
+"""Incremental IEC 61850 health analysis for GOOSE, SV, and MMS."""
 
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass, field
 
-# --- Tunable thresholds (fixed, documented defaults; not exposed as params) ---
-STORM_COUNT = 3  # >= this many stNum changes ...
-STORM_WINDOW_MS = 100  # ... within this window => GOOSE state-change storm
-MMS_SLOW_MS = 1000  # MMS response slower than this => WARN
-MAX_STREAMS_SHOWN = 20  # cap rendered per-source blocks
-MAX_ANOMALIES_PER_STREAM = 10  # cap anomalies listed per block
+STORM_COUNT = 3
+STORM_WINDOW_MS = 100
+MMS_SLOW_MS = 1000
+MAX_STREAMS_SHOWN = 20
+MAX_ANOMALIES_PER_STREAM = 10
 SEVERITY_ORDER = {"FAIL": 0, "WARN": 1, "OK": 2}
+SV_COUNTER_MODULUS = 2**16
+LEGACY_SV_RATES = {4000, 4800}
 
-# tshark display filter used to select each protocol's frames.
-BASE_FILTERS: dict[str, str] = {"goose": "goose", "sv": "sv", "mms": "mms"}
+BASE_FILTERS: dict[str, str] = {
+    "goose": "goose",
+    "sv": "sv",
+    "mms": (
+        "mms and not (tcp.analysis.retransmission or tcp.analysis.fast_retransmission "
+        "or tcp.analysis.spurious_retransmission)"
+    ),
+}
 
-# ``-e`` columns extracted per protocol. Verified against tshark 4.6.5.
 FIELD_SETS: dict[str, list[str]] = {
     "goose": [
         "frame.number",
@@ -37,36 +38,19 @@ FIELD_SETS: dict[str, list[str]] = {
     ],
     "sv": [
         "frame.number",
-        "frame.time_epoch",
         "eth.dst",
         "sv.svID",
         "sv.smpCnt",
         "sv.smpSynch",
         "sv.confRev",
         "sv.smpRate",
-    ],
-    "mms": [
-        "frame.number",
-        "frame.time_epoch",
-        "tcp.stream",
-        "ip.src",
-        "ip.dst",
-        "mms.invokeID",
-        "mms.originalInvokeID",
-        "mms.confirmed_RequestPDU_element",
-        "mms.confirmed_ResponsePDU_element",
-        "mms.confirmedServiceRequest",
-        "mms.confirmedServiceResponse",
-        "mms.errorClass",
-        "mms.rejectReason",
+        "sv.smpMod",
     ],
 }
 
 
 @dataclass
 class Anomaly:
-    """A single detected issue. ``severity`` is ``"FAIL"`` or ``"WARN"``."""
-
     severity: str
     frame: int | None
     message: str
@@ -74,22 +58,40 @@ class Anomaly:
 
 @dataclass
 class StreamReport:
-    """Per-source result. ``verdict`` is ``"OK"``/``"WARN"``/``"FAIL"``."""
-
     stream_id: str
     label: str
     verdict: str
     metrics: dict[str, str]
     anomalies: list[Anomaly]
+    anomaly_count: int | None = None
+
+    @property
+    def total_anomalies(self) -> int:
+        return len(self.anomalies) if self.anomaly_count is None else self.anomaly_count
 
 
 @dataclass
 class ProtocolReport:
-    """Aggregate result for one protocol over one capture."""
-
     streams_analyzed: int
     packets_scanned: int
     streams: list[StreamReport]
+
+
+@dataclass
+class _Findings:
+    verdict: str = "OK"
+    count: int = 0
+    preview: list[Anomaly] = field(default_factory=list)
+
+    def add(self, severity: str, frame: int | None, message: str) -> None:
+        self.count += 1
+        if SEVERITY_ORDER[severity] < SEVERITY_ORDER[self.verdict]:
+            self.verdict = severity
+        if len(self.preview) < MAX_ANOMALIES_PER_STREAM:
+            self.preview.append(Anomaly(severity, frame, message))
+
+    def report(self, stream_id: str, label: str, metrics: dict[str, str]) -> StreamReport:
+        return StreamReport(stream_id, label, self.verdict, metrics, self.preview, self.count)
 
 
 def _int(value: str, default: int = 0) -> int:
@@ -99,361 +101,377 @@ def _int(value: str, default: int = 0) -> int:
         return default
 
 
-def _float(value: str, default: float = 0.0) -> float:
+def _float(value: str) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
-        return default
+        return 0.0
 
 
 def _truthy(value: str) -> bool:
-    """tshark renders FT_BOOLEAN fields as ``"1"``/``"0"`` under -T fields."""
+    """Accept both numeric and textual true values from tshark."""
     return value.strip().lower() in {"1", "true"}
 
 
-def parse_field_rows(tsv_text: str, columns: list[str]) -> list[dict[str, str]]:
-    """Parse ``tshark -T fields -E header=y`` TSV into a list of dicts.
+@dataclass
+class _GooseStorm:
+    candidates: deque[tuple[int, float]] = field(default_factory=deque)
+    start: tuple[int, float] | None = None
+    end_frame: int = 0
+    count: int = 0
+    complete: bool = False
 
-    The first non-empty line is the header (discarded — we key by ``columns``).
-    Each data line is split on tab and zipped with ``columns``; rows with fewer
-    fields than ``columns`` are padded with ``""``. Blank lines are skipped.
-    """
-    lines = [ln for ln in tsv_text.splitlines() if ln.strip() != ""]
-    if len(lines) <= 1:
-        return []
-    rows: list[dict[str, str]] = []
-    for line in lines[1:]:  # skip header
-        parts = line.split("\t")
-        if len(parts) < len(columns):
-            parts = parts + [""] * (len(columns) - len(parts))
-        rows.append({col: parts[i] for i, col in enumerate(columns)})
-    return rows
-
-
-def _verdict(anomalies: list[Anomaly]) -> str:
-    if any(a.severity == "FAIL" for a in anomalies):
-        return "FAIL"
-    if any(a.severity == "WARN" for a in anomalies):
-        return "WARN"
-    return "OK"
-
-
-def _expand_multi_occurrence(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Expand comma-joined multi-occurrence field values into one row per occurrence.
-
-    ``tshark -T fields`` joins repeated occurrences of a field within one frame
-    with commas (its default aggregator) — e.g. a two-ASDU SV frame yields
-    ``sv.smpCnt = "0,1"`` and ``sv.svID = "MU01,MU01"``. Per-frame fields such as
-    ``frame.number`` occur once and are replicated across the expanded rows, as
-    is any value whose occurrence count disagrees with the row's maximum.
-    """
-    out: list[dict[str, str]] = []
-    for row in rows:
-        parts = {key: value.split(",") for key, value in row.items()}
-        occurrences = max(len(p) for p in parts.values()) if parts else 1
-        if occurrences == 1:
-            out.append(row)
-            continue
-        for i in range(occurrences):
-            out.append(
-                {key: (p[i] if len(p) == occurrences else row[key]) for key, p in parts.items()}
-            )
-    return out
+    def add(self, frame: int, time: float) -> None:
+        if self.complete:
+            return
+        window = STORM_WINDOW_MS / 1000
+        if self.start is None:
+            while self.candidates and time - self.candidates[0][1] > window:
+                self.candidates.popleft()
+            self.candidates.append((frame, time))
+            if len(self.candidates) == STORM_COUNT:
+                self.start = self.candidates[0]
+                self.end_frame = frame
+                self.count = STORM_COUNT
+                self.candidates.clear()
+        elif time - self.start[1] <= window:
+            self.count += 1
+            self.end_frame = frame
+        else:
+            self.complete = True
 
 
-def _group_by(rows: list[dict[str, str]], key: str) -> dict[str, list[dict[str, str]]]:
-    """Group rows by a column value, preserving capture order within groups."""
-    groups: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for row in rows:
-        groups[row.get(key, "")].append(row)
-    return groups
+@dataclass
+class _GooseStream:
+    label: str
+    findings: _Findings = field(default_factory=_Findings)
+    storm: _GooseStorm = field(default_factory=_GooseStorm)
+    previous: tuple[int, int, float, int] | None = None
+    packets: int = 0
+    st_changes: int = 0
+    sq_max: int = 0
+    nds_seen: bool = False
+    sim_seen: bool = False
 
+    def add(self, row: dict[str, str]) -> None:
+        frame = _int(row["frame.number"])
+        time = _float(row["frame.time_epoch"])
+        st = _int(row["goose.stNum"])
+        sq = _int(row["goose.sqNum"])
+        self.packets += 1
+        self.sq_max = max(self.sq_max, sq)
+        self.nds_seen |= _truthy(row["goose.ndsCom"])
+        self.sim_seen |= _truthy(row["goose.simulation"])
 
-def _detect_goose_storm(change_events: list[tuple[int, float]]) -> Anomaly | None:
-    """Flag the first window of >= STORM_COUNT stNum changes within the window."""
-    window_s = STORM_WINDOW_MS / 1000.0
-    for i in range(len(change_events)):
-        j = i
-        while j < len(change_events) and change_events[j][1] - change_events[i][1] <= window_s:
-            j += 1
-        count = j - i
-        if count >= STORM_COUNT:
-            return Anomaly(
+        if self.previous is not None:
+            pst, psq, pt, ptal = self.previous
+            if st == pst and sq - psq > 1:
+                self.findings.add(
+                    "FAIL", frame, f"sqNum gap @frame {frame}: {psq}->{sq} ({sq - psq - 1} missed)"
+                )
+            if st < pst and pst - st < 2**31:
+                self.findings.add("FAIL", frame, f"stNum regression @frame {frame}: {pst}->{st}")
+            if st > pst:
+                self.st_changes += 1
+                self.storm.add(frame, time)
+            gap_ms = (time - pt) * 1000
+            if ptal > 0 and gap_ms > ptal:
+                self.findings.add(
+                    "FAIL",
+                    frame,
+                    f"TTL violation @frame {frame}: gap {gap_ms:.1f} ms > timeAllowedtoLive {ptal} ms",
+                )
+
+        self.previous = st, sq, time, _int(row["goose.timeAllowedtoLive"])
+
+    def report(self, stream_id: str) -> StreamReport:
+        if self.storm.start is not None:
+            frame, _ = self.storm.start
+            self.findings.add(
                 "WARN",
-                change_events[i][0],
-                f"storm: {count} stNum changes within {STORM_WINDOW_MS} ms "
-                f"@frames {change_events[i][0]}-{change_events[j - 1][0]}",
+                frame,
+                f"storm: {self.storm.count} stNum changes within {STORM_WINDOW_MS} ms "
+                f"@frames {frame}-{self.storm.end_frame}",
             )
-    return None
+        if self.nds_seen:
+            self.findings.add("WARN", None, "ndsCom set (publisher needs commissioning)")
+        if self.sim_seen:
+            self.findings.add("WARN", None, "simulation flag set (simulated data on the wire)")
 
-
-def analyze_goose(rows: list[dict[str, str]]) -> ProtocolReport:
-    """Detect GOOSE liveness/sequence anomalies, grouped by gocbRef."""
-    groups = _group_by(rows, "goose.gocbRef")
-    streams: list[StreamReport] = []
-
-    for gocb, group in groups.items():
-        anomalies: list[Anomaly] = []
-        change_events: list[tuple[int, float]] = []
-        st_changes = 0
-        sq_max = 0
-        nds_seen = sim_seen = False
-
-        for idx, row in enumerate(group):
-            frame = _int(row["frame.number"])
-            st = _int(row["goose.stNum"])
-            sq = _int(row["goose.sqNum"])
-            sq_max = max(sq_max, sq)
-            nds_seen = nds_seen or _truthy(row["goose.ndsCom"])
-            sim_seen = sim_seen or _truthy(row["goose.simulation"])
-
-            if idx > 0:
-                prev = group[idx - 1]
-                pst = _int(prev["goose.stNum"])
-                psq = _int(prev["goose.sqNum"])
-                pt = _float(prev["frame.time_epoch"])
-                t = _float(row["frame.time_epoch"])
-                ptal = _int(prev["goose.timeAllowedtoLive"])
-
-                if st == pst and sq - psq > 1:
-                    missed = sq - psq - 1
-                    anomalies.append(
-                        Anomaly(
-                            "FAIL",
-                            frame,
-                            f"sqNum gap @frame {frame}: {psq}->{sq} ({missed} missed)",
-                        )
-                    )
-                if st < pst and (pst - st) < 2**31:  # ignore 32-bit rollover
-                    anomalies.append(
-                        Anomaly("FAIL", frame, f"stNum regression @frame {frame}: {pst}->{st}")
-                    )
-                if st > pst:
-                    st_changes += 1
-                    change_events.append((frame, t))
-                gap_ms = (t - pt) * 1000.0
-                if ptal > 0 and gap_ms > ptal:
-                    anomalies.append(
-                        Anomaly(
-                            "FAIL",
-                            frame,
-                            f"TTL violation @frame {frame}: gap {gap_ms:.1f} ms > "
-                            f"timeAllowedtoLive {ptal} ms",
-                        )
-                    )
-
-        storm = _detect_goose_storm(change_events)
-        if storm is not None:
-            anomalies.append(storm)
-        if nds_seen:
-            anomalies.append(Anomaly("WARN", None, "ndsCom set (publisher needs commissioning)"))
-        if sim_seen:
-            anomalies.append(
-                Anomaly("WARN", None, "simulation flag set (simulated data on the wire)")
-            )
-
-        label = f"dst {group[0].get('eth.dst', '')}"
-        metrics = {
-            "stNum changes": str(st_changes),
-            "sqNum max": str(sq_max),
-            "pkts": str(len(group)),
-        }
-        streams.append(StreamReport(gocb, label, _verdict(anomalies), metrics, anomalies))
-
-    return ProtocolReport(len(streams), len(rows), streams)
+        return self.findings.report(
+            stream_id,
+            self.label,
+            {
+                "stNum changes": str(self.st_changes),
+                "sqNum max": str(self.sq_max),
+                "pkts": str(self.packets),
+            },
+        )
 
 
 _SMPSYNCH = {0: "none", 1: "local", 2: "global"}
 
 
-def analyze_sv(rows: list[dict[str, str]]) -> ProtocolReport:
-    """Detect Sampled Values continuity / sync anomalies, grouped by svID.
+def _sv_asdus(row: dict[str, str]) -> Iterator[dict[str, str]]:
+    if "," not in row["sv.smpCnt"]:
+        yield row
+        return
 
-    Frames carrying multiple ASDUs are expanded to one row per ASDU first;
-    ``packets_scanned`` still reports the frame count.
-    """
-    frames_scanned = len(rows)
-    rows = _expand_multi_occurrence(rows)
-    groups = _group_by(rows, "sv.svID")
-    streams: list[StreamReport] = []
+    counts = row["sv.smpCnt"].split(",")
+    columns = {key: value.split(",") for key, value in row.items() if key.startswith("sv.")}
+    same_stream = len(set(columns["sv.svID"])) == 1
+    for index in range(len(counts)):
+        asdu = row.copy()
+        for key, parts in columns.items():
+            if len(parts) == len(counts):
+                asdu[key] = parts[index]
+            elif key in {"sv.smpRate", "sv.smpMod"} and not (same_stream and len(set(parts)) == 1):
+                # tshark omits empty optional occurrences, so their positions can be ambiguous.
+                asdu[key] = "?"
+        yield asdu
 
-    for svid, group in groups.items():
-        anomalies: list[Anomaly] = []
-        counts = [_int(r["sv.smpCnt"]) for r in group]
-        modulus = max(counts) + 1 if counts else 1
 
-        synch_values = {_int(r["sv.smpSynch"]) for r in group}
-        for idx, row in enumerate(group):
-            frame = _int(row["frame.number"])
-            cnt = _int(row["sv.smpCnt"])
-            synch = _int(row["sv.smpSynch"])
-            confrev = _int(row["sv.confRev"])
-            if idx > 0:
-                prev = group[idx - 1]
-                pcnt = _int(prev["sv.smpCnt"])
-                psynch = _int(prev["sv.smpSynch"])
-                pconf = _int(prev["sv.confRev"])
-                expected = (pcnt + 1) % modulus
-                if cnt != expected:
-                    dropped = (cnt - expected) % modulus
-                    anomalies.append(
-                        Anomaly(
-                            "FAIL",
-                            frame,
-                            f"smpCnt discontinuity @frame {frame}: {pcnt}->{cnt} "
-                            f"(~{dropped} dropped)",
-                        )
-                    )
-                if psynch in (1, 2) and synch == 0:
-                    anomalies.append(
-                        Anomaly("FAIL", frame, f"loss of sync @frame {frame}: smpSynch {psynch}->0")
-                    )
-                if confrev != pconf:
-                    anomalies.append(
-                        Anomaly(
-                            "WARN",
-                            frame,
-                            f"confRev change @frame {frame}: {pconf}->{confrev} "
-                            "(dataset redefined)",
-                        )
-                    )
+def _sv_modulus(row: dict[str, str]) -> int | None:
+    rate = _int(row.get("sv.smpRate", ""))
+    if not 0 < rate < SV_COUNTER_MODULUS:
+        return None
+    mode = row.get("sv.smpMod", "")
+    # IEC 61850-9-2 Table 14 leaves resets to the SV profile. Use a one-second
+    # cycle for samples/second and the common 9-2LE rates sent without a mode.
+    if mode == "1" or (not mode and rate in LEGACY_SV_RATES):
+        return rate
+    return None
 
-        if synch_values == {0}:
-            anomalies.append(
-                Anomaly("WARN", None, "smpSynch=0 throughout (samples not time-synchronized)")
+
+@dataclass
+class _SVStream:
+    label: str
+    first_confrev: str
+    findings: _Findings = field(default_factory=_Findings)
+    previous_count: int | None = None
+    previous_confrev: int | None = None
+    modulus: int | None = None
+    asdus: int = 0
+    max_count: int = 0
+    synch: int = 0
+    ever_synced: bool = False
+
+    def add(self, row: dict[str, str]) -> None:
+        frame = _int(row["frame.number"])
+        cnt = _int(row["sv.smpCnt"], default=-1)
+        synch = _int(row["sv.smpSynch"])
+        confrev = _int(row["sv.confRev"])
+        changed = self.previous_confrev is not None and self.previous_confrev != confrev
+        if changed:
+            self.modulus = None
+        self.modulus = _sv_modulus(row) or self.modulus
+
+        self.add_count(frame, cnt)
+        if self.synch in (1, 2) and synch == 0:
+            self.findings.add(
+                "FAIL", frame, f"loss of sync @frame {frame}: smpSynch {self.synch}->0"
             )
-
-        last_synch = _int(group[-1]["sv.smpSynch"])
-        metrics = {
-            "smpCnt max": str(max(counts) if counts else 0),
-            "smpSynch": f"{last_synch} ({_SMPSYNCH.get(last_synch, '?')})",
-            "confRev": group[0].get("sv.confRev", ""),
-            "ASDUs": str(len(group)),
-        }
-        label = f"dst {group[0].get('eth.dst', '')}"
-        streams.append(StreamReport(svid, label, _verdict(anomalies), metrics, anomalies))
-
-    return ProtocolReport(len(streams), frames_scanned, streams)
-
-
-def _mms_kind(row: dict[str, str]) -> str:
-    """Classify an MMS PDU by which marker column is populated.
-
-    The PDU element markers (FT_NONE presence fields) are checked first: tshark
-    can dissect a valid confirmed-ResponsePDU with ``mms.confirmedServiceResponse``
-    left empty (seen on GetNameList responses in 4.6.5), so the service fields
-    alone under-count responses.
-    """
-    if row.get("mms.confirmed_RequestPDU_element", "") or row.get(
-        "mms.confirmedServiceRequest", ""
-    ):
-        return "req"
-    if row.get("mms.confirmed_ResponsePDU_element", "") or row.get(
-        "mms.confirmedServiceResponse", ""
-    ):
-        return "resp"
-    if row.get("mms.errorClass", ""):
-        return "error"
-    if row.get("mms.rejectReason", ""):
-        return "reject"
-    return "other"
-
-
-def analyze_mms(rows: list[dict[str, str]]) -> ProtocolReport:
-    """Detect MMS request/response anomalies, grouped by TCP stream."""
-    groups = _group_by(rows, "tcp.stream")
-    streams: list[StreamReport] = []
-
-    for stream_id, group in groups.items():
-        anomalies: list[Anomaly] = []
-        pending: dict[int, deque[tuple[int, float]]] = defaultdict(deque)
-        req_count = resp_count = err_count = 0
-        max_rt_ms = 0.0
-        label = ""
-
-        for row in group:
-            frame = _int(row["frame.number"])
-            t = _float(row["frame.time_epoch"])
-            kind = _mms_kind(row)
-            if kind == "req":
-                req_count += 1
-                if not label:
-                    label = f"{row.get('ip.src', '')} -> {row.get('ip.dst', '')}"
-                pending[_int(row["mms.invokeID"])].append((frame, t))
-            elif kind == "resp":
-                resp_count += 1
-                invoke = _int(row["mms.invokeID"])
-                queue = pending.get(invoke)
-                if queue:
-                    _, req_t = queue.popleft()
-                    rt_ms = (t - req_t) * 1000.0
-                    max_rt_ms = max(max_rt_ms, rt_ms)
-                    if rt_ms > MMS_SLOW_MS:
-                        anomalies.append(
-                            Anomaly(
-                                "WARN",
-                                frame,
-                                f"slow response @frame {frame}: invokeID {invoke} "
-                                f"took {rt_ms:.0f} ms",
-                            )
-                        )
-            elif kind in ("error", "reject"):
-                err_count += 1
-                invoke = _int(row["mms.invokeID"]) or _int(row["mms.originalInvokeID"])
-                queue = pending.get(invoke)
-                if queue:
-                    queue.popleft()
-                detail = (
-                    f"errorClass={row['mms.errorClass']}"
-                    if kind == "error"
-                    else f"reason={row['mms.rejectReason']}"
-                )
-                anomalies.append(
-                    Anomaly(
-                        "FAIL", frame, f"{kind} PDU @frame {frame}: invokeID {invoke} ({detail})"
-                    )
-                )
-
-        for invoke, queue in pending.items():
-            for frame, _ in queue:
-                anomalies.append(
-                    Anomaly(
-                        "WARN",
-                        frame,
-                        f"unpaired request @frame {frame}: invokeID {invoke} (no response)",
-                    )
-                )
-
-        metrics = {
-            "requests": str(req_count),
-            "responses": str(resp_count),
-            "errors": str(err_count),
-            "max resp ms": f"{max_rt_ms:.0f}",
-        }
-        streams.append(
-            StreamReport(
-                f"tcp.stream {stream_id}",
-                label or group[0].get("ip.src", ""),
-                _verdict(anomalies),
-                metrics,
-                anomalies,
+        if changed:
+            self.findings.add(
+                "WARN",
+                frame,
+                f"confRev change @frame {frame}: {self.previous_confrev}->{confrev} (dataset redefined)",
             )
+        self.asdus += 1
+        self.previous_confrev = confrev
+        self.synch = synch
+        self.ever_synced |= synch != 0
+
+    def add_count(self, frame: int, cnt: int) -> None:
+        limit = self.modulus or SV_COUNTER_MODULUS
+        if not 0 <= cnt < limit:
+            value = str(cnt) if cnt >= 0 else "missing or invalid"
+            self.findings.add(
+                "FAIL",
+                frame,
+                f"smpCnt out of range @frame {frame}: {value} (expected 0 to {limit - 1})",
+            )
+            return
+
+        prev = self.previous_count
+        self.previous_count = cnt
+        self.max_count = max(self.max_count, cnt)
+        if prev is None or prev >= limit:
+            return
+        if cnt == (prev + 1) % limit or (self.modulus is None and cnt == 0 and prev > 0):
+            return
+
+        if cnt == prev:
+            detail = "duplicate counter"
+        elif self.modulus is not None:
+            detail = f"~{(cnt - prev - 1) % limit} dropped"
+        elif cnt > prev:
+            detail = f"~{cnt - prev - 1} dropped"
+        else:
+            detail = "drop count unknown without sample rate"
+        self.findings.add(
+            "FAIL", frame, f"smpCnt discontinuity @frame {frame}: {prev}->{cnt} ({detail})"
         )
 
-    return ProtocolReport(len(streams), len(rows), streams)
+    def report(self, stream_id: str) -> StreamReport:
+        if not self.ever_synced:
+            self.findings.add("WARN", None, "smpSynch=0 throughout (samples not time-synchronized)")
+        return self.findings.report(
+            stream_id,
+            self.label,
+            {
+                "smpCnt max": str(self.max_count),
+                "smpSynch": f"{self.synch} ({_SMPSYNCH.get(self.synch, '?')})",
+                "confRev": self.first_confrev,
+                "ASDUs": str(self.asdus),
+            },
+        )
+
+
+@dataclass
+class _MMSStream:
+    first_source: str
+    findings: _Findings = field(default_factory=_Findings)
+    pending: dict[tuple[str, str, int], deque[tuple[int, float]]] = field(
+        default_factory=lambda: defaultdict(deque)
+    )
+    label: str = ""
+    requests: int = 0
+    responses: int = 0
+    errors: int = 0
+    max_rt_ms: float = 0.0
+
+    def add(self, row: dict[str, str]) -> None:
+        frame = _int(row["frame.number"])
+        time = _float(row["frame.time_epoch"])
+        kind = row.get("mms.kind", "")
+        invoke_text = row.get("mms.invokeID", "") or row.get("mms.originalInvokeID", "")
+        invoke = _int(invoke_text, default=-1)
+        if kind == "req":
+            self.requests += 1
+            if not self.label:
+                self.label = f"{row['ip.src']} -> {row['ip.dst']}"
+            if invoke < 0:
+                self.findings.add(
+                    "WARN", frame, f"unpaired request @frame {frame}: missing invokeID"
+                )
+            else:
+                self.pending[(row["ip.src"], row.get("tcp.srcport", ""), invoke)].append(
+                    (frame, time)
+                )
+            return
+
+        key = (row["ip.dst"], row.get("tcp.dstport", ""), invoke)
+        queue = self.pending.get(key)
+        req_time = None
+        if queue and kind in {"resp", "error", "reject"}:
+            _, req_time = queue.popleft()
+            if not queue:
+                del self.pending[key]
+
+        if kind == "resp":
+            self.responses += 1
+            if req_time is not None:
+                rt_ms = (time - req_time) * 1000
+                self.max_rt_ms = max(self.max_rt_ms, rt_ms)
+                if rt_ms > MMS_SLOW_MS:
+                    self.findings.add(
+                        "WARN",
+                        frame,
+                        f"slow response @frame {frame}: invokeID {invoke} took {rt_ms:.0f} ms",
+                    )
+        elif kind in {"error", "reject", "cancel error"}:
+            self.errors += 1
+            if kind == "reject":
+                detail = f"reason={row.get('mms.rejectReason') or 'unknown'}"
+            else:
+                detail = f"errorClass={row.get('mms.errorClass') or 'unknown'}"
+            identifier = str(invoke) if invoke >= 0 else "missing"
+            self.findings.add(
+                "FAIL", frame, f"{kind} PDU @frame {frame}: invokeID {identifier} ({detail})"
+            )
+
+    def report(self, stream_id: str) -> StreamReport:
+        for (_, _, invoke), queue in self.pending.items():
+            for frame, _ in queue:
+                self.findings.add(
+                    "WARN",
+                    frame,
+                    f"unpaired request @frame {frame}: invokeID {invoke} (no response)",
+                )
+
+        return self.findings.report(
+            f"tcp.stream {stream_id}",
+            self.label or self.first_source,
+            {
+                "requests": str(self.requests),
+                "responses": str(self.responses),
+                "errors": str(self.errors),
+                "max resp ms": f"{self.max_rt_ms:.0f}",
+            },
+        )
+
+
+_Stream = _GooseStream | _SVStream | _MMSStream
+_STREAM_TYPES: dict[str, tuple[str, Callable[[dict[str, str]], _Stream]]] = {
+    "goose": ("goose.gocbRef", lambda row: _GooseStream(f"dst {row['eth.dst']}")),
+    "sv": ("sv.svID", lambda row: _SVStream(f"dst {row['eth.dst']}", row["sv.confRev"])),
+    "mms": ("tcp.stream", lambda row: _MMSStream(row["ip.src"])),
+}
+
+
+class CaptureAnalysis:
+    def __init__(self, protocol: str) -> None:
+        self.group_field, self.make_stream = _STREAM_TYPES[protocol]
+        self.streams: dict[str, _Stream] = {}
+        self.packets_scanned = 0
+
+    def add_frame(self, rows: Iterable[dict[str, str]]) -> None:
+        self.packets_scanned += 1
+        for row in rows:
+            stream_id = row.get(self.group_field, "")
+            stream = self.streams.get(stream_id)
+            if stream is None:
+                stream = self.streams[stream_id] = self.make_stream(row)
+            stream.add(row)
+
+    def add_field_frame(self, row: dict[str, str]) -> None:
+        self.add_frame(_sv_asdus(row) if self.group_field == "sv.svID" else (row,))
+
+    def finish(self) -> ProtocolReport:
+        streams = [stream.report(stream_id) for stream_id, stream in self.streams.items()]
+        return ProtocolReport(len(streams), self.packets_scanned, streams)
+
+
+def _analyze_rows(protocol: str, rows: Iterable[dict[str, str]]) -> ProtocolReport:
+    analysis = CaptureAnalysis(protocol)
+    for row in rows:
+        analysis.add_field_frame(row)
+    return analysis.finish()
+
+
+def analyze_goose(rows: Iterable[dict[str, str]]) -> ProtocolReport:
+    return _analyze_rows("goose", rows)
+
+
+def analyze_sv(rows: Iterable[dict[str, str]]) -> ProtocolReport:
+    return _analyze_rows("sv", rows)
+
+
+def analyze_mms(rows: Iterable[dict[str, str]]) -> ProtocolReport:
+    return _analyze_rows("mms", rows)
 
 
 def format_report(protocol: str, file_path: str, report: ProtocolReport) -> str:
     """Render a ProtocolReport as a compact, worst-first text report."""
     lines = [
         f"=== IEC 61850 {protocol.upper()} health: {file_path} ===",
-        f"Streams analyzed: {report.streams_analyzed} | "
-        f"packets scanned: {report.packets_scanned:,}",
+        f"Streams analyzed: {report.streams_analyzed} | packets scanned: {report.packets_scanned:,}",
         "",
     ]
 
     ordered = sorted(
-        report.streams, key=lambda s: (SEVERITY_ORDER.get(s.verdict, 3), -len(s.anomalies))
+        report.streams, key=lambda s: (SEVERITY_ORDER.get(s.verdict, 3), -s.total_anomalies)
     )
     shown = ordered[:MAX_STREAMS_SHOWN]
 
@@ -463,7 +481,7 @@ def format_report(protocol: str, file_path: str, report: ProtocolReport) -> str:
         if stream.verdict != "OK":
             for anomaly in stream.anomalies[:MAX_ANOMALIES_PER_STREAM]:
                 lines.append(f"  • {anomaly.message}")
-            extra = len(stream.anomalies) - MAX_ANOMALIES_PER_STREAM
+            extra = stream.total_anomalies - MAX_ANOMALIES_PER_STREAM
             if extra > 0:
                 lines.append(f"  • … {extra} more anomalies")
         lines.append("")
